@@ -74,11 +74,37 @@ export const configSchema = z
 
 export type ConfigFormValues = z.infer<typeof configSchema>
 
-export const configDefaults: ConfigFormValues = configSchema.parse({
+// Plain defaults — not parsed through the schema so required-field constraints
+// don't throw on initial empty values; React Hook Form validates on interaction.
+export const configDefaults: ConfigFormValues = {
   experiment: '',
   experiment_file: '',
+  baseline_condition: '',
   data_dir: '',
   ref_dir: 'references',
   reference: '',
   orf: '',
-})
+  variants_file: '',
+  regenerate_variants: false,
+  oligo_file: '',
+  scoring_backend: 'rosace',
+  enrich2: false,
+  remove_zeros: false,
+  run_qc: true,
+  noprocess: false,
+  max_deletion_length: 3,
+  kmers: 15,
+  sam: '1.3',
+  min_q: 30,
+  min_variant_obs: 3,
+  mem: 16,
+  mem_fastqc: 1024,
+  mem_rosace: 16000,
+  mem_lilace: 16000,
+  samtools_local: false,
+  rosace_local: false,
+  lilace_local: false,
+  bbtools_use_bgzip: true,
+  adapters: 'resources/adapters.fa',
+  contaminants: 'resources/sequencing_artifacts.fa.gz,resources/phix174_ill.ref.fa.gz',
+}
