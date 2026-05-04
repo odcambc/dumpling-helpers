@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: oklch(55% 0.22 265);
+  --color-brand-light: oklch(95% 0.05 265);
+  --color-brand-dark: oklch(40% 0.22 265);
+
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  background-color: oklch(97% 0.005 265);
+}

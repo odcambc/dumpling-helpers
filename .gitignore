@@ -72,3 +72,19 @@ tags
 
 # End of https://www.toptal.com/developers/gitignore/api/osx,vim,visualstudiocode
 
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+
+# Environment files
+.env
+.env.local
+.env*.local
+

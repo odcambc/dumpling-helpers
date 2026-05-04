@@ -1,0 +1,216 @@
+import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { configSchema, configDefaults, type ConfigFormValues } from '@/schemas/config'
+import { makeEmptyRow, type SampleRowValues } from '@/schemas/experiments'
+import type { ExperimentMode, WizardStep } from '@/types'
+import { api, type Capabilities } from '@/api/client'
+import { StepExperiment } from '@/components/wizard/StepExperiment'
+import { StepPaths } from '@/components/wizard/StepPaths'
+import { StepPipeline } from '@/components/wizard/StepPipeline'
+import { SampleTable } from '@/components/SampleTable/SampleTable'
+import { Preview } from '@/components/Preview/Preview'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+
+const STEPS: { label: string; title: string }[] = [
+  { label: 'Experiment', title: 'Experiment identity' },
+  { label: 'Paths', title: 'Data & reference paths' },
+  { label: 'Pipeline', title: 'Pipeline options' },
+  { label: 'Samples', title: 'Sample table' },
+]
+
+export default function App() {
+  const [step, setStep] = useState<WizardStep>(1)
+  const [rows, setRows] = useState<SampleRowValues[]>([makeEmptyRow()])
+  const [mode, setMode] = useState<ExperimentMode>('timecourse')
+  const [includeTile, setIncludeTile] = useState(false)
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [downloadSuccess, setDownloadSuccess] = useState(false)
+
+  const form = useForm<ConfigFormValues>({
+    resolver: zodResolver(configSchema),
+    defaultValues: configDefaults,
+    mode: 'onBlur',
+  })
+
+  const config = form.watch()
+
+  useEffect(() => {
+    api.capabilities().then(setCapabilities).catch(() => setCapabilities(null))
+  }, [])
+
+  async function handleDownload() {
+    const valid = await form.trigger()
+    if (!valid) return
+
+    setDownloading(true)
+    setDownloadError(null)
+    setDownloadSuccess(false)
+
+    try {
+      const blob = await api.generate(config, rows, mode, includeTile)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${config.experiment || 'dumpling'}-config.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      setDownloadSuccess(true)
+      setTimeout(() => setDownloadSuccess(false), 3000)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  return (
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
+      {/* ── Sidebar ─────────────────────────────────────── */}
+      <aside className="w-72 shrink-0 flex flex-col border-r border-gray-200 bg-white">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-brand flex items-center justify-center">
+              <span className="text-white text-xs font-bold">D</span>
+            </div>
+            <span className="font-semibold text-gray-900 text-sm">dumpling-helpers</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Pipeline config generator</p>
+        </div>
+
+        {/* Steps */}
+        <nav className="flex-1 p-4 space-y-1">
+          {STEPS.map(({ label }, i) => {
+            const n = (i + 1) as WizardStep
+            const isActive = step === n
+            const isDone = step > n
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setStep(n)}
+                className={cn(
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left',
+                  isActive
+                    ? 'bg-brand-light text-brand-dark font-medium'
+                    : 'text-gray-600 hover:bg-gray-50',
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0',
+                    isActive
+                      ? 'bg-brand text-white'
+                      : isDone
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-500',
+                  )}
+                >
+                  {isDone ? '✓' : n}
+                </span>
+                {label}
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Status & Download */}
+        <div className="p-4 border-t border-gray-100 space-y-3">
+          {capabilities !== null && (
+            <p className="text-xs text-gray-400">
+              {capabilities.filesystem_access ? '🖥 Local mode' : '☁ Hosted mode'}
+              {capabilities.snakemake_available && ' · Snakemake available'}
+            </p>
+          )}
+
+          {downloadError && (
+            <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 rounded-lg p-2">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              {downloadError}
+            </div>
+          )}
+
+          {downloadSuccess && (
+            <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 rounded-lg p-2">
+              <CheckCircle size={14} />
+              Downloaded!
+            </div>
+          )}
+
+          <Button
+            type="button"
+            className="w-full"
+            onClick={handleDownload}
+            disabled={downloading}
+          >
+            {downloading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Download size={14} />
+            )}
+            Download ZIP
+          </Button>
+        </div>
+      </aside>
+
+      {/* ── Form area ────────────────────────────────────── */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Step content */}
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="max-w-xl">
+            <form>
+              {step === 1 && <StepExperiment form={form} />}
+              {step === 2 && <StepPaths form={form} />}
+              {step === 3 && <StepPipeline form={form} />}
+              {step === 4 && (
+                <SampleTable
+                  rows={rows}
+                  mode={mode}
+                  includeTile={includeTile}
+                  onChange={setRows}
+                  onModeChange={setMode}
+                  onIncludeTileChange={setIncludeTile}
+                />
+              )}
+            </form>
+          </div>
+        </div>
+
+        {/* Prev / Next navigation */}
+        <div className="shrink-0 flex justify-between items-center px-8 py-4 border-t border-gray-100 bg-white">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setStep((s) => Math.max(1, s - 1) as WizardStep)}
+            disabled={step === 1}
+          >
+            ← Back
+          </Button>
+          <span className="text-xs text-gray-400">Step {step} of {STEPS.length}</span>
+          <Button
+            type="button"
+            onClick={() => setStep((s) => Math.min(4, s + 1) as WizardStep)}
+            disabled={step === 4}
+          >
+            Next →
+          </Button>
+        </div>
+      </main>
+
+      {/* ── Live preview panel ───────────────────────────── */}
+      <aside className="w-96 shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 shrink-0">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Live preview</p>
+        </div>
+        <div className="flex-1 overflow-hidden p-4">
+          <Preview config={config} rows={rows} mode={mode} includeTile={includeTile} />
+        </div>
+      </aside>
+    </div>
+  )
+}
