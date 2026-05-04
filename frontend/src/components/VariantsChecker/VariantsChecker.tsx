@@ -82,7 +82,6 @@ interface CheckResult {
   posMax: number
   emptyCells: Record<string, number>
   rowIssues: RowIssue[]
-  frameshiftCount: number
   positionMap: Map<number, PositionData>
   sortedPositions: number[]
 }
@@ -119,11 +118,10 @@ function buildPositionMap(rows: VariantRow[]): Map<number, PositionData> {
     else if (row.mutation_type === 'X') d.nonsense = true
     else if (row.mutation_type === 'D') {
       d.deletions++
+      // length is in codons — span subsequent positions for multi-codon deletions
       const len = parseInt(row.length, 10)
-      // In-frame multi-codon deletion: mark all spanned positions
-      if (!isNaN(len) && len % 3 === 0 && len > 3) {
-        const codonSpan = len / 3
-        for (let i = 1; i < codonSpan; i++) {
+      if (!isNaN(len) && len > 1) {
+        for (let i = 1; i < len; i++) {
           getOrCreate(pos + i).deletionSpan++
         }
       }
@@ -139,7 +137,6 @@ function analyseVariants(rows: VariantRow[], headers: string[]): Omit<CheckResul
   const typeCounts: Record<string, number> = {}
   const emptyCells: Record<string, number> = {}
   const rowIssues: RowIssue[] = []
-  let frameshiftCount = 0
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
@@ -150,15 +147,6 @@ function analyseVariants(rows: VariantRow[], headers: string[]): Omit<CheckResul
     if (row.mutation_type && !VALID_MUTATION_TYPES.has(row.mutation_type))
       problems.push(`unknown mutation_type "${row.mutation_type}"`)
     if (!row.name?.trim()) problems.push('name is empty')
-
-    // Frameshift check: indel length must be a multiple of 3 nucleotides to stay in-frame
-    if (row.mutation_type === 'D' || row.mutation_type === 'I') {
-      const len = parseInt(row.length, 10)
-      if (!isNaN(len) && len % 3 !== 0) {
-        frameshiftCount++
-        problems.push(`length ${len}nt is not divisible by 3 — potential frameshift`)
-      }
-    }
 
     const mt = row.mutation_type ?? 'unknown'
     typeCounts[mt] = (typeCounts[mt] ?? 0) + 1
@@ -184,7 +172,6 @@ function analyseVariants(rows: VariantRow[], headers: string[]): Omit<CheckResul
     posMax,
     emptyCells,
     rowIssues,
-    frameshiftCount,
     positionMap,
     sortedPositions,
   }
@@ -557,16 +544,6 @@ export function VariantsChecker({ open, onClose }: Props) {
                   <Stat label="Position range" value={`${result.posMin}–${result.posMax}`} />
                   <Stat label="Positions covered" value={result.sortedPositions.length.toLocaleString()} />
                 </div>
-                {result.frameshiftCount > 0 && (
-                  <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>
-                      <span className="font-semibold">{result.frameshiftCount.toLocaleString()} potential frameshift{result.frameshiftCount !== 1 ? 's' : ''}</span>
-                      {' '}— deletion/insertion length not divisible by 3 (nucleotide lengths assumed).
-                      These will disrupt the reading frame downstream of the variant.
-                    </span>
-                  </div>
-                )}
                 <div className="space-y-1.5">
                   {Object.entries(result.typeCounts).sort(([, a], [, b]) => b - a).map(([type, count]) => {
                     const pct = Math.round((count / result.totalRows) * 100)
