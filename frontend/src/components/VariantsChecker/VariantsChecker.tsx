@@ -61,6 +61,8 @@ interface PositionData {
   synonymous: boolean
   nonsense: boolean
   deletions: number
+  /** Positions covered by a multi-codon deletion that *started* at an earlier position */
+  deletionSpan: number
   insertions: number
   totalVariants: number
 }
@@ -80,6 +82,7 @@ interface CheckResult {
   posMax: number
   emptyCells: Record<string, number>
   rowIssues: RowIssue[]
+  frameshiftCount: number
   positionMap: Map<number, PositionData>
   sortedPositions: number[]
 }
@@ -88,21 +91,45 @@ interface CheckResult {
 
 function buildPositionMap(rows: VariantRow[]): Map<number, PositionData> {
   const map = new Map<number, PositionData>()
+
+  function getOrCreate(pos: number): PositionData {
+    if (!map.has(pos)) {
+      map.set(pos, {
+        wt: '?', missense: new Set(), synonymous: false, nonsense: false,
+        deletions: 0, deletionSpan: 0, insertions: 0, totalVariants: 0,
+      })
+    }
+    return map.get(pos)!
+  }
+
   for (const row of rows) {
     const pos = parseInt(row.pos, 10)
     if (isNaN(pos)) continue
-    if (!map.has(pos)) {
-      // WT is the leading letter(s) of the name before the position digits
-      const wt = row.name?.match(/^([A-Z]+)\d/)?.[1]?.[0] ?? '?'
-      map.set(pos, { wt, missense: new Set(), synonymous: false, nonsense: false, deletions: 0, insertions: 0, totalVariants: 0 })
+    const d = getOrCreate(pos)
+
+    // Update WT from variant name if not yet resolved
+    if (d.wt === '?') {
+      const wt = row.name?.match(/^([A-Z]+)\d/)?.[1]?.[0]
+      if (wt) d.wt = wt
     }
-    const d = map.get(pos)!
+
     d.totalVariants++
     if (row.mutation_type === 'M') d.missense.add(row.mutation)
     else if (row.mutation_type === 'S') d.synonymous = true
     else if (row.mutation_type === 'X') d.nonsense = true
-    else if (row.mutation_type === 'D') d.deletions++
-    else if (row.mutation_type === 'I') d.insertions++
+    else if (row.mutation_type === 'D') {
+      d.deletions++
+      const len = parseInt(row.length, 10)
+      // In-frame multi-codon deletion: mark all spanned positions
+      if (!isNaN(len) && len % 3 === 0 && len > 3) {
+        const codonSpan = len / 3
+        for (let i = 1; i < codonSpan; i++) {
+          getOrCreate(pos + i).deletionSpan++
+        }
+      }
+    } else if (row.mutation_type === 'I') {
+      d.insertions++
+    }
   }
   return map
 }
@@ -112,18 +139,27 @@ function analyseVariants(rows: VariantRow[], headers: string[]): Omit<CheckResul
   const typeCounts: Record<string, number> = {}
   const emptyCells: Record<string, number> = {}
   const rowIssues: RowIssue[] = []
-  let posMin = Infinity, posMax = -Infinity
+  let frameshiftCount = 0
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
     const problems: string[] = []
-    const pos = parseInt(row.pos, 10)
-    if (isNaN(pos)) problems.push(`pos "${row.pos}" is not a number`)
-    else { posMin = Math.min(posMin, pos); posMax = Math.max(posMax, pos) }
+
+    if (isNaN(parseInt(row.pos, 10))) problems.push(`pos "${row.pos}" is not a number`)
     if (isNaN(parseInt(row.count, 10))) problems.push(`count "${row.count}" is not a number`)
     if (row.mutation_type && !VALID_MUTATION_TYPES.has(row.mutation_type))
       problems.push(`unknown mutation_type "${row.mutation_type}"`)
     if (!row.name?.trim()) problems.push('name is empty')
+
+    // Frameshift check: indel length must be a multiple of 3 nucleotides to stay in-frame
+    if (row.mutation_type === 'D' || row.mutation_type === 'I') {
+      const len = parseInt(row.length, 10)
+      if (!isNaN(len) && len % 3 !== 0) {
+        frameshiftCount++
+        problems.push(`length ${len}nt is not divisible by 3 — potential frameshift`)
+      }
+    }
+
     const mt = row.mutation_type ?? 'unknown'
     typeCounts[mt] = (typeCounts[mt] ?? 0) + 1
     for (const col of REQUIRED_COLUMNS) {
@@ -136,15 +172,19 @@ function analyseVariants(rows: VariantRow[], headers: string[]): Omit<CheckResul
 
   const positionMap = buildPositionMap(rows)
   const sortedPositions = [...positionMap.keys()].sort((a, b) => a - b)
+  // Derive range from the map so multi-codon deletion spans are included
+  const posMin = sortedPositions.length > 0 ? sortedPositions[0] : 0
+  const posMax = sortedPositions.length > 0 ? sortedPositions[sortedPositions.length - 1] : 0
 
   return {
     totalRows: rows.length,
     missingColumns,
     typeCounts,
-    posMin: isFinite(posMin) ? posMin : 0,
-    posMax: isFinite(posMax) ? posMax : 0,
+    posMin,
+    posMax,
     emptyCells,
     rowIssues,
+    frameshiftCount,
     positionMap,
     sortedPositions,
   }
@@ -345,11 +385,11 @@ function SubstitutionGrid({
 
         {/* Special rows: synonymous, nonsense, deletion, insertion */}
         {[
-          { key: 'syn', label: 'Syn', check: (d: PositionData) => d.synonymous, color: '#6B7280' },
-          { key: 'stp', label: 'Stp', check: (d: PositionData) => d.nonsense, color: '#1F2937' },
-          { key: 'del', label: 'Del', check: (d: PositionData) => d.deletions > 0, color: '#7C3AED' },
-          { key: 'ins', label: 'Ins', check: (d: PositionData) => d.insertions > 0, color: '#0891B2' },
-        ].map(({ key, label, check, color }) => (
+          { key: 'syn', label: 'Syn', check: (d: PositionData) => d.synonymous, spanCheck: null, color: '#6B7280' },
+          { key: 'stp', label: 'Stp', check: (d: PositionData) => d.nonsense, spanCheck: null, color: '#1F2937' },
+          { key: 'del', label: 'Del', check: (d: PositionData) => d.deletions > 0, spanCheck: (d: PositionData) => d.deletionSpan > 0, color: '#7C3AED' },
+          { key: 'ins', label: 'Ins', check: (d: PositionData) => d.insertions > 0, spanCheck: null, color: '#0891B2' },
+        ].map(({ key, label, check, spanCheck, color }) => (
           <div key={key} className="flex items-center" style={{ marginBottom: 1 }}>
             <div style={{ width: LABEL_W, fontSize: 8, color }} className="font-mono font-bold text-right pr-1">
               {label}
@@ -357,13 +397,17 @@ function SubstitutionGrid({
             {windowPositions.map((pos) => {
               const d = positionMap.get(pos)
               const present = d ? check(d) : false
+              const spanned = !present && spanCheck && d ? spanCheck(d) : false
               return (
                 <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
                   <div
+                    title={spanned ? `spanned by deletion from earlier position` : undefined}
                     style={{
                       width: CELL - 2, height: CELL - 2, borderRadius: 2,
-                      background: present ? color : '#F9FAFB',
-                      opacity: present ? 0.7 : 1,
+                      background: present ? color : spanned ? color : '#F9FAFB',
+                      opacity: present ? 0.7 : spanned ? 0.25 : 1,
+                      // Dashed border helps distinguish "spanned through" from "starts here"
+                      border: spanned ? `1px dashed ${color}` : 'none',
                     }}
                   />
                 </div>
@@ -513,6 +557,16 @@ export function VariantsChecker({ open, onClose }: Props) {
                   <Stat label="Position range" value={`${result.posMin}–${result.posMax}`} />
                   <Stat label="Positions covered" value={result.sortedPositions.length.toLocaleString()} />
                 </div>
+                {result.frameshiftCount > 0 && (
+                  <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                    <span>
+                      <span className="font-semibold">{result.frameshiftCount.toLocaleString()} potential frameshift{result.frameshiftCount !== 1 ? 's' : ''}</span>
+                      {' '}— deletion/insertion length not divisible by 3 (nucleotide lengths assumed).
+                      These will disrupt the reading frame downstream of the variant.
+                    </span>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   {Object.entries(result.typeCounts).sort(([, a], [, b]) => b - a).map(([type, count]) => {
                     const pct = Math.round((count / result.totalRows) * 100)
