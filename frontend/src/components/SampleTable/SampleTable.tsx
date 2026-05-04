@@ -1,8 +1,9 @@
-import { useCallback, useRef } from 'react'
-import { Plus, Trash2, ClipboardPaste } from 'lucide-react'
-import type { ExperimentMode } from '@/types'
+import { useCallback, useRef, useState } from 'react'
+import { Plus, Trash2, ClipboardPaste, ScanSearch, X } from 'lucide-react'
+import type { ExperimentMode, Capabilities } from '@/types'
 import type { SampleRowValues } from '@/schemas/experiments'
 import { makeEmptyRow, validateSampleTable } from '@/schemas/experiments'
+import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { cn } from '@/lib/utils'
@@ -11,6 +12,8 @@ interface Props {
   rows: SampleRowValues[]
   mode: ExperimentMode
   includeTile: boolean
+  dataDir: string
+  capabilities: Capabilities | null
   onChange: (rows: SampleRowValues[]) => void
   onModeChange: (mode: ExperimentMode) => void
   onIncludeTileChange: (v: boolean) => void
@@ -20,12 +23,35 @@ export function SampleTable({
   rows,
   mode,
   includeTile,
+  dataDir,
+  capabilities,
   onChange,
   onModeChange,
   onIncludeTileChange,
 }: Props) {
   const errors = validateSampleTable(rows)
   const pasteRef = useRef<HTMLTextAreaElement>(null)
+  const [scanning, setScanning] = useState(false)
+  const [discovered, setDiscovered] = useState<string[] | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
+
+  async function handleScan() {
+    setScanning(true)
+    setScanError(null)
+    setDiscovered(null)
+    try {
+      const result = await api.discover(dataDir)
+      setDiscovered(result.prefixes)
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Scan failed')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  function addDiscoveredPrefix(prefix: string) {
+    onChange([...rows, { ...makeEmptyRow(), file: prefix }])
+  }
 
   const updateRow = useCallback(
     (idx: number, patch: Partial<SampleRowValues>) => {
@@ -106,24 +132,73 @@ export function SampleTable({
         />
       </div>
 
-      {/* Paste hint */}
-      <div className="relative">
-        <textarea
-          ref={pasteRef}
-          className="sr-only"
-          aria-label="Paste area for spreadsheet data"
-          onPaste={handlePaste}
-          readOnly
-        />
-        <button
-          type="button"
-          onClick={() => pasteRef.current?.focus()}
-          className="flex items-center gap-1.5 text-xs text-brand hover:text-brand-dark transition-colors"
-        >
-          <ClipboardPaste size={14} />
-          Click here, then paste from spreadsheet (tab-separated, no header)
-        </button>
+      {/* Paste + scan hints */}
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative">
+          <textarea
+            ref={pasteRef}
+            className="sr-only"
+            aria-label="Paste area for spreadsheet data"
+            onPaste={handlePaste}
+            readOnly
+          />
+          <button
+            type="button"
+            onClick={() => pasteRef.current?.focus()}
+            className="flex items-center gap-1.5 text-xs text-brand hover:text-brand-dark transition-colors"
+          >
+            <ClipboardPaste size={14} />
+            Click here, then paste from spreadsheet (tab-separated, no header)
+          </button>
+        </div>
+
+        {capabilities?.filesystem_access && dataDir && (
+          <button
+            type="button"
+            onClick={handleScan}
+            disabled={scanning}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50"
+          >
+            <ScanSearch size={14} />
+            {scanning ? 'Scanning…' : 'Scan data directory for FASTQs'}
+          </button>
+        )}
       </div>
+
+      {/* Scan results */}
+      {scanError && (
+        <p className="text-xs text-red-600">{scanError}</p>
+      )}
+      {discovered !== null && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-600">
+              {discovered.length === 0
+                ? 'No FASTQ files found'
+                : `${discovered.length} file prefix${discovered.length !== 1 ? 'es' : ''} detected`}
+            </p>
+            <button type="button" onClick={() => setDiscovered(null)}>
+              <X size={14} className="text-gray-400 hover:text-gray-600" />
+            </button>
+          </div>
+          {discovered.length > 0 && (
+            <ul className="space-y-1 max-h-48 overflow-y-auto">
+              {discovered.map((prefix) => (
+                <li key={prefix} className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-gray-700 truncate">{prefix}</span>
+                  <button
+                    type="button"
+                    onClick={() => addDiscoveredPrefix(prefix)}
+                    className="shrink-0 text-xs text-brand hover:text-brand-dark font-medium"
+                  >
+                    + Add row
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-xs">

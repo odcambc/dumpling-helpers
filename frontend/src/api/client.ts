@@ -88,6 +88,10 @@ export const api = {
     const params = path ? `?path=${encodeURIComponent(path)}` : ''
     return request<BrowseResult>(`/api/browse${params}`)
   },
+
+  async discover(dataDir: string): Promise<{ data_dir: string; prefixes: string[] }> {
+    return request(`/api/discover?data_dir=${encodeURIComponent(dataDir)}`)
+  },
 }
 
 function toConfigPayload(v: ConfigFormValues) {
