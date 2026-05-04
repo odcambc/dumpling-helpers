@@ -61,4 +61,28 @@ export interface Capabilities {
   version: string
 }
 
-export type WizardStep = 1 | 2 | 3 | 4
+export type WizardStep = 1 | 2 | 3 | 4 | 5
+
+export type RunEnvironment = 'local' | 'slurm' | 'sge'
+
+export interface LocalRunConfig {
+  cores: number
+}
+
+export interface SlurmRunConfig {
+  partition: string
+  maxJobs: number
+  defaultTimeMins: number
+  includeProfile: boolean
+}
+
+export interface SgeRunConfig {
+  queue: string
+  maxJobs: number
+  includeProfile: boolean
+}
+
+export type RunConfig =
+  | { env: 'local'; local: LocalRunConfig }
+  | { env: 'slurm'; slurm: SlurmRunConfig }
+  | { env: 'sge'; sge: SgeRunConfig }
