@@ -129,6 +129,32 @@ export function StepPipeline({ form }: Props) {
             <Input type="number" min={1000} {...register('mem_lilace', { valueAsNumber: true })} />
           </Field>
         </div>
+        <div className="border-t border-gray-100 pt-4 space-y-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resource files</p>
+          <Field
+            label="Adapters FASTA"
+            htmlFor="adapters"
+            description="Adapter sequences for BBDuk trimming."
+          >
+            <Input
+              id="adapters"
+              placeholder="resources/adapters.fa"
+              {...register('adapters')}
+            />
+          </Field>
+          <Field
+            label="Contaminant FASAs"
+            htmlFor="contaminants"
+            hint="comma-separated"
+            description="Contaminant reference files for BBDuk filtering (PhiX, sequencing artifacts, etc.)."
+          >
+            <Input
+              id="contaminants"
+              placeholder="resources/sequencing_artifacts.fa.gz,resources/phix174_ill.ref.fa.gz"
+              {...register('contaminants')}
+            />
+          </Field>
+        </div>
       </Collapsible>
 
       <Collapsible title="Environment / local tool overrides">

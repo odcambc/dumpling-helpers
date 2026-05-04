@@ -126,34 +126,6 @@ export function StepPaths({ form }: Props) {
         </Field>
       )}
 
-      <div className="border-t border-gray-100 pt-4 space-y-4">
-        <p className="text-sm font-medium text-gray-700">Resource files</p>
-
-        <Field
-          label="Adapters FASTA"
-          htmlFor="adapters"
-          description="Adapter sequences for BBDuk trimming."
-        >
-          <Input
-            id="adapters"
-            placeholder="resources/adapters.fa"
-            {...register('adapters')}
-          />
-        </Field>
-
-        <Field
-          label="Contaminant FASAs"
-          htmlFor="contaminants"
-          hint="comma-separated"
-          description="Contaminant reference files for BBDuk filtering (PhiX, sequencing artifacts, etc.)."
-        >
-          <Input
-            id="contaminants"
-            placeholder="resources/sequencing_artifacts.fa.gz,resources/phix174_ill.ref.fa.gz"
-            {...register('contaminants')}
-          />
-        </Field>
-      </div>
     </div>
   )
 }
