@@ -106,11 +106,10 @@ interface OligoResult {
 /** Per-position summary built from all oligos that target a given AA position. */
 interface OligoPositionData {
   wtAa: string
-  /** mut AA → worst validation status of any oligo claiming that substitution */
-  mutations: Map<string, OligoStatus>
-  /** Worst status among indel oligos targeting this position, or null if none */
-  indelStatus: OligoStatus | null
-  worstStatus: OligoStatus
+  /** mut AA → { pass, warn, fail } counts across all oligos claiming that substitution */
+  mutations: Map<string, { pass: number; warn: number; fail: number }>
+  /** Counts for indel oligos targeting this position, or null if none */
+  indelCounts: { pass: number; warn: number; fail: number } | null
   oligoCount: number
 }
 
@@ -468,8 +467,91 @@ function validateOligo(
     return { id, claimed, claimedIndel: null, cdsAlignPos, changes: [change], isFrameshift: false, problems, status }
   }
 
-  // ── Indel and unknown oligos: gapless alignment ───────────────────────────
-  // Extract the CDS-homologous region using k-mer hit extent to trim adapters.
+  // ── Claimed indel: direct flanking-sequence verification ─────────────────
+  // Gapless alignment cannot detect indels: region extraction always yields
+  // equal-length cdsRegion and oligoRegion (mathematically, because both span
+  // the same oligo k-mer extent). Equal-length inputs → equal-length refMid/
+  // oligoMid → always classified as 'sub', never 'del' or 'ins'.
+  //
+  // Instead, for a claimed indel at CDS position D, we probe the oligo directly:
+  // verify that the FLANK bases immediately before and after the claimed site
+  // match the reference. k-mer voting may have converged on either the pre-indel
+  // or post-indel cdsAlignPos, so we try both candidate site positions.
+  if (claimedIndel) {
+    const { type: indelType, lengthNt, pos } = claimedIndel
+    const D = (pos - 1) * 3  // 0-based CDS nt start of the indel
+
+    if (lengthNt % 3 !== 0) {
+      fail(`Claimed ${indelType} length ${lengthNt} nt is not divisible by 3 — would cause a frameshift`)
+    }
+
+    // For a deletion of L nt at D:
+    //   pre-del k-mers vote for cdsAlignPos = C  → site = D - C
+    //   post-del k-mers vote for cdsAlignPos = C+L → site = D - (C+L) + L = D - C
+    //   Both resolve to the same site (D - C), so also try D - cdsAlignPos + L in
+    //   case the winning vote was post-del (i.e., C = cdsAlignPos - L).
+    // For an insertion of L nt at D:
+    //   pre-ins vote for C → site = D - C; post-ins vote for C-L → site = D - C.
+    //   Try also D - cdsAlignPos - L.
+    const FLANK = 6
+    const candidateSites: number[] = indelType === 'deletion'
+      ? [D - cdsAlignPos, D - cdsAlignPos + lengthNt]
+      : [D - cdsAlignPos, D - cdsAlignPos - lengthNt]
+
+    const checkFlank = (site: number): boolean => {
+      // Pre-flank: oligo[site-k] must match CDS[D-k]
+      for (let k = 1; k <= FLANK; k++) {
+        const oIdx = site - k; const cIdx = D - k
+        if (oIdx < 0 || cIdx < 0) break
+        if (upper[oIdx] !== cdsUpper[cIdx]) return false
+      }
+      // Post-flank depends on indel type
+      if (indelType === 'deletion') {
+        // oligo[site+k] must match CDS[D+L+k] (oligo resumes after the deletion)
+        for (let k = 0; k < FLANK; k++) {
+          const oIdx = site + k; const cIdx = D + lengthNt + k
+          if (oIdx >= upper.length || cIdx >= cdsUpper.length) break
+          if (upper[oIdx] !== cdsUpper[cIdx]) return false
+        }
+      } else {
+        // oligo[site+L+k] must match CDS[D+k] (CDS resumes after the insertion)
+        for (let k = 0; k < FLANK; k++) {
+          const oIdx = site + lengthNt + k; const cIdx = D + k
+          if (oIdx >= upper.length || cIdx >= cdsUpper.length) break
+          if (upper[oIdx] !== cdsUpper[cIdx]) return false
+        }
+      }
+      return true
+    }
+
+    let verified = false
+    let indelSiteInOligo = -1
+    for (const site of candidateSites) {
+      if (site >= 0 && site <= upper.length && checkFlank(site)) {
+        verified = true; indelSiteInOligo = site; break
+      }
+    }
+
+    if (!verified) {
+      fail(`Could not confirm ${indelType} of ${lengthNt} nt at position ${pos} — flanking sequence does not match reference`)
+    }
+
+    const refBases = indelType === 'deletion' ? cdsUpper.slice(D, D + lengthNt) : ''
+    const oligoBases = indelType === 'insertion' && indelSiteInOligo >= 0
+      ? upper.slice(indelSiteInOligo, indelSiteInOligo + lengthNt) : ''
+    const indelChange: ActualChange = {
+      cdsNtPos: D, aaPos: pos,
+      isCodonAligned: D % 3 === 0, isFrameshift: lengthNt % 3 !== 0,
+      type: indelType === 'deletion' ? 'del' : 'ins',
+      refBases, oligoBases, wtAa: null, mutAa: null,
+    }
+    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [indelChange], isFrameshift: indelChange.isFrameshift, problems, status }
+  }
+
+  // ── Unknown oligos: gapless alignment ─────────────────────────────────────
+  // For oligos we can't parse, try to characterise the mutation via gapless
+  // alignment. This won't catch indels (equal-length regions), but it will
+  // identify substitutions and produce a meaningful warning message.
   const rawCdsStart    = cdsAlignPos + oligoCdsStart
   const rawCdsEnd      = cdsAlignPos + oligoCdsEnd
   const cdsRegionStart = Math.max(0, rawCdsStart)
@@ -482,60 +564,52 @@ function validateOligo(
 
   if (cdsRegion.length === 0) {
     fail('Oligo does not overlap with CDS region')
-    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    return { id, claimed: null, claimedIndel: null, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
   }
 
   const { prefixLen, refMid, oligoMid } = gaplessAlign(cdsRegion, oligoRegion)
 
   if (refMid.length === 0 && oligoMid.length === 0) {
-    if (claimedIndel) {
-      fail(`No deletion/insertion found in CDS region for claimed ${claimedIndel.type} at pos ${claimedIndel.pos}`)
-    }
-    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    return { id, claimed: null, claimedIndel: null, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
   }
 
   const mutCdsNtPos = cdsRegionStart + prefixLen
   const change      = classifyChange(mutCdsNtPos, refMid, oligoMid, cdsUpper)
-  const isFrameshift = change.isFrameshift
 
-  if (isFrameshift) {
+  if (change.isFrameshift) {
     fail(`Frameshift at CDS nt ${mutCdsNtPos + 1}: ${refMid.length}nt→${oligoMid.length}nt (diff ${Math.abs(refMid.length - oligoMid.length)}nt, not divisible by 3)`)
   }
   if (change.type !== 'sub' && !change.isCodonAligned) {
     warn(`Indel starts at CDS nt ${mutCdsNtPos + 1} (frame +${mutCdsNtPos % 3}) — not at a codon boundary`)
   }
-
-  if (claimedIndel) {
-    const { type: indelType, lengthNt, pos } = claimedIndel
-    if (lengthNt % 3 !== 0) {
-      fail(`Claimed ${indelType} length ${lengthNt}nt is not divisible by 3 — would cause frameshift`)
-    }
-    if (change.type !== (indelType === 'deletion' ? 'del' : 'ins')) {
-      fail(`Expected ${indelType} but gapless alignment found ${change.type}`)
-    } else {
-      const actualNt = indelType === 'deletion' ? refMid.length : oligoMid.length
-      if (actualNt !== lengthNt) {
-        fail(`Claimed ${lengthNt}nt ${indelType} but found ${actualNt}nt`)
-      }
-      if (Math.abs(change.aaPos - pos) >= 2) {
-        fail(`Position shift: claimed ${indelType} at AA ${pos} but found at AA ${change.aaPos}`)
-      }
-    }
+  if (change.wtAa && change.mutAa) {
+    warn(`Unparseable ID; found ${change.type} ${change.wtAa}${change.aaPos}${change.mutAa} at CDS nt ${mutCdsNtPos + 1}`)
   } else {
-    if (change.wtAa && change.mutAa) {
-      warn(`Unparseable ID; found ${change.type} ${change.wtAa}${change.aaPos}${change.mutAa} at CDS nt ${mutCdsNtPos + 1}`)
-    } else {
-      warn(`Unparseable ID; found ${change.type} (${refMid.length}nt→${oligoMid.length}nt) at CDS nt ${mutCdsNtPos + 1}`)
-    }
+    warn(`Unparseable ID; found ${change.type} (${refMid.length}nt→${oligoMid.length}nt) at CDS nt ${mutCdsNtPos + 1}`)
   }
 
-  return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [change], isFrameshift, problems, status }
+  return { id, claimed: null, claimedIndel: null, cdsAlignPos, changes: [change], isFrameshift: change.isFrameshift, problems, status }
 }
 
-function mergeStatus(a: OligoStatus, b: OligoStatus): OligoStatus {
-  if (a === 'fail' || b === 'fail') return 'fail'
-  if (a === 'warn' || b === 'warn') return 'warn'
+/**
+ * Compute display status from pass/warn/fail counts.
+ * >50% fail → fail; any fail or warn → warn; otherwise pass.
+ * This makes the grid less alarming when only a minority of oligos for a given
+ * position have issues — a single rogue oligo won't paint the whole column red.
+ */
+function effectiveStatus(counts: { pass: number; warn: number; fail: number }): OligoStatus {
+  const total = counts.pass + counts.warn + counts.fail
+  if (total === 0) return 'pass'
+  if (counts.fail / total > 0.5) return 'fail'
+  if (counts.fail > 0 || counts.warn > 0) return 'warn'
   return 'pass'
+}
+
+function positionEffectiveStatus(d: OligoPositionData): OligoStatus {
+  let pass = 0, warn = 0, fail = 0
+  for (const c of d.mutations.values()) { pass += c.pass; warn += c.warn; fail += c.fail }
+  if (d.indelCounts) { pass += d.indelCounts.pass; warn += d.indelCounts.warn; fail += d.indelCounts.fail }
+  return effectiveStatus({ pass, warn, fail })
 }
 
 function buildOligoPositionMap(
@@ -549,8 +623,7 @@ function buildOligoPositionMap(
       map.set(pos, {
         wtAa: pos >= 1 && pos <= wtProtein.length ? wtProtein[pos - 1] : '?',
         mutations: new Map(),
-        indelStatus: null,
-        worstStatus: 'pass',
+        indelCounts: null,
         oligoCount: 0,
       })
     }
@@ -563,14 +636,14 @@ function buildOligoPositionMap(
 
     const d = getOrCreate(pos)
     d.oligoCount++
-    d.worstStatus = mergeStatus(d.worstStatus, r.status)
 
     if (r.claimed) {
       if (d.wtAa === '?') d.wtAa = r.claimed.wt
-      const prev = d.mutations.get(r.claimed.mut) ?? 'pass'
-      d.mutations.set(r.claimed.mut, mergeStatus(prev, r.status))
+      if (!d.mutations.has(r.claimed.mut)) d.mutations.set(r.claimed.mut, { pass: 0, warn: 0, fail: 0 })
+      d.mutations.get(r.claimed.mut)![r.status]++
     } else if (r.claimedIndel) {
-      d.indelStatus = d.indelStatus ? mergeStatus(d.indelStatus, r.status) : r.status
+      if (!d.indelCounts) d.indelCounts = { pass: 0, warn: 0, fail: 0 }
+      d.indelCounts[r.status]++
     }
   }
 
@@ -688,8 +761,9 @@ function OligoRibbon({
   function posColor(pos: number): string {
     const d = positionMap.get(pos)
     if (!d) return '#E5E7EB'
-    if (d.worstStatus === 'fail') return '#FCA5A5'
-    if (d.worstStatus === 'warn') return '#FDE68A'
+    const s = positionEffectiveStatus(d)
+    if (s === 'fail') return '#FCA5A5'
+    if (s === 'warn') return '#FDE68A'
     return '#86EFAC'
   }
 
@@ -821,12 +895,13 @@ function OligoGrid({
             </div>
             {windowPositions.map(pos => {
               const d = positionMap.get(pos)
-              const status = d?.mutations.get(aa) ?? null
+              const counts = d?.mutations.get(aa) ?? null
+              const status = counts ? effectiveStatus(counts) : null
               return (
                 <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
                   {status ? (
                     <div
-                      title={`${d?.wtAa ?? '?'}${pos}${aa}: ${status}`}
+                      title={`${d?.wtAa ?? '?'}${pos}${aa}: ${status} (${counts!.pass}✓ ${counts!.warn}⚠ ${counts!.fail}✗)`}
                       style={{
                         width: CELL - 2, height: CELL - 2, borderRadius: 2,
                         background: STATUS_BG[status],
@@ -854,12 +929,13 @@ function OligoGrid({
               </div>
               {windowPositions.map(pos => {
                 const d = positionMap.get(pos)
-                const status = d?.indelStatus ?? null
+                const counts = d?.indelCounts ?? null
+                const status = counts ? effectiveStatus(counts) : null
                 return (
                   <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
                     {status ? (
                       <div
-                        title={`Indel at AA ${pos}: ${status}`}
+                        title={`Indel at AA ${pos}: ${status} (${counts!.pass}✓ ${counts!.warn}⚠ ${counts!.fail}✗)`}
                         style={{
                           width: CELL - 2, height: CELL - 2, borderRadius: 2,
                           background: STATUS_BG[status],
