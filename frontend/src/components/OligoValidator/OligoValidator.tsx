@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { X, Upload, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { X, Upload, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Genetic code ─────────────────────────────────────────────────────────────
@@ -30,6 +30,29 @@ const THREE_TO_ONE: Record<string, string> = {
   Ser: 'S', Thr: 'T', Trp: 'W', Tyr: 'Y', Val: 'V',
   Ter: '*', Stop: '*', Stp: '*',
 }
+
+type OligoStatus = 'pass' | 'warn' | 'fail'
+
+// ─── Grid constants ───────────────────────────────────────────────────────────
+
+const WINDOW_SIZE = 20
+const AA_ORDER = ['F', 'W', 'Y', 'C', 'H', 'K', 'R', 'D', 'E', 'N', 'Q', 'S', 'T', 'G', 'A', 'V', 'I', 'L', 'M', 'P']
+const AA_COLOR: Record<string, string> = {
+  F: '#B45309', W: '#92400E', Y: '#D97706', C: '#065F46',
+  H: '#1D4ED8', K: '#2563EB', R: '#1E40AF',
+  D: '#B91C1C', E: '#DC2626',
+  N: '#059669', Q: '#10B981', S: '#34D399', T: '#6EE7B7',
+  G: '#6B7280', A: '#9CA3AF', V: '#B45309', I: '#92400E', L: '#78350F', M: '#A16207', P: '#D97706',
+}
+const AA_BG: Record<string, string> = {
+  F: '#FEF3C7', W: '#FDE68A', Y: '#FEF9C3', C: '#D1FAE5',
+  H: '#DBEAFE', K: '#BFDBFE', R: '#93C5FD',
+  D: '#FEE2E2', E: '#FECACA',
+  N: '#D1FAE5', Q: '#A7F3D0', S: '#ECFDF5', T: '#D1FAE5',
+  G: '#F3F4F6', A: '#F9FAFB', V: '#FFFBEB', I: '#FEF3C7', L: '#FEF3C7', M: '#FEF9C3', P: '#FFFBEB',
+}
+const STATUS_BG: Record<OligoStatus, string> = { pass: '#86EFAC', warn: '#FDE68A', fail: '#FCA5A5' }
+const STATUS_BORDER: Record<OligoStatus, string> = { pass: '#22C55E', warn: '#F59E0B', fail: '#EF4444' }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,8 +90,6 @@ interface ActualChange {
   mutAa: string | null     // translated oligo codon (null for del/ins or multi-codon)
 }
 
-type OligoStatus = 'pass' | 'warn' | 'fail'
-
 interface OligoResult {
   id: string
   status: OligoStatus
@@ -82,6 +103,17 @@ interface OligoResult {
   problems: string[]
 }
 
+/** Per-position summary built from all oligos that target a given AA position. */
+interface OligoPositionData {
+  wtAa: string
+  /** mut AA → worst validation status of any oligo claiming that substitution */
+  mutations: Map<string, OligoStatus>
+  /** Worst status among indel oligos targeting this position, or null if none */
+  indelStatus: OligoStatus | null
+  worstStatus: OligoStatus
+  oligoCount: number
+}
+
 interface ValidationResult {
   refName: string
   cdsStartInRef: number
@@ -91,6 +123,10 @@ interface ValidationResult {
   cdsStartVotes: number
   wtProtein: string
   totalOligos: number
+  positionMap: Map<number, OligoPositionData>
+  sortedPositions: number[]
+  posMin: number
+  posMax: number
   results: OligoResult[]
 }
 
@@ -478,6 +514,52 @@ function validateOligo(
   return { id, claimed, claimedIndel, cdsAlignPos, changes: [change], isFrameshift, problems, status }
 }
 
+function mergeStatus(a: OligoStatus, b: OligoStatus): OligoStatus {
+  if (a === 'fail' || b === 'fail') return 'fail'
+  if (a === 'warn' || b === 'warn') return 'warn'
+  return 'pass'
+}
+
+function buildOligoPositionMap(
+  results: OligoResult[],
+  wtProtein: string,
+): { map: Map<number, OligoPositionData>; sorted: number[] } {
+  const map = new Map<number, OligoPositionData>()
+
+  function getOrCreate(pos: number): OligoPositionData {
+    if (!map.has(pos)) {
+      map.set(pos, {
+        wtAa: pos >= 1 && pos <= wtProtein.length ? wtProtein[pos - 1] : '?',
+        mutations: new Map(),
+        indelStatus: null,
+        worstStatus: 'pass',
+        oligoCount: 0,
+      })
+    }
+    return map.get(pos)!
+  }
+
+  for (const r of results) {
+    const pos = r.claimed?.pos ?? r.claimedIndel?.pos ?? r.changes[0]?.aaPos ?? null
+    if (pos === null || pos === undefined) continue
+
+    const d = getOrCreate(pos)
+    d.oligoCount++
+    d.worstStatus = mergeStatus(d.worstStatus, r.status)
+
+    if (r.claimed) {
+      if (d.wtAa === '?') d.wtAa = r.claimed.wt
+      const prev = d.mutations.get(r.claimed.mut) ?? 'pass'
+      d.mutations.set(r.claimed.mut, mergeStatus(prev, r.status))
+    } else if (r.claimedIndel) {
+      d.indelStatus = d.indelStatus ? mergeStatus(d.indelStatus, r.status) : r.status
+    }
+  }
+
+  const sorted = [...map.keys()].sort((a, b) => a - b)
+  return { map, sorted }
+}
+
 function runValidation(
   refText: string,
   csvText: string,
@@ -519,6 +601,11 @@ function runValidation(
 
   const kmerIndex = buildKmerIndex(cdsSeq)
 
+  const results = oligos.map(o => validateOligo(o.id, o.seq, cdsSeq, kmerIndex))
+  const { map: positionMap, sorted: sortedPositions } = buildOligoPositionMap(results, wtProtein)
+  const posMin = sortedPositions.length > 0 ? sortedPositions[0] : 1
+  const posMax = sortedPositions.length > 0 ? sortedPositions[sortedPositions.length - 1] : 1
+
   return {
     refName: ref.header,
     cdsStartInRef,
@@ -526,7 +613,11 @@ function runValidation(
     cdsStartVotes,
     wtProtein,
     totalOligos: oligos.length,
-    results: oligos.map(o => validateOligo(o.id, o.seq, cdsSeq, kmerIndex)),
+    positionMap,
+    sortedPositions,
+    posMin,
+    posMax,
+    results,
   }
 }
 
@@ -560,6 +651,215 @@ function downloadReport(result: ValidationResult) {
   a.download = `${result.refName.replace(/\s+/g, '_')}-oligo-validation.csv`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ─── Position overview components ─────────────────────────────────────────────
+
+function OligoRibbon({
+  sortedPositions, posMin, posMax, positionMap, windowStart, onNavigate,
+}: {
+  sortedPositions: number[]
+  posMin: number; posMax: number
+  positionMap: Map<number, OligoPositionData>
+  windowStart: number
+  onNavigate: (pos: number) => void
+}) {
+  const range = posMax - posMin + 1
+  if (range <= 0 || sortedPositions.length === 0) return null
+
+  function posColor(pos: number): string {
+    const d = positionMap.get(pos)
+    if (!d) return '#E5E7EB'
+    if (d.worstStatus === 'fail') return '#FCA5A5'
+    if (d.worstStatus === 'warn') return '#FDE68A'
+    return '#86EFAC'
+  }
+
+  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const frac = (e.clientX - rect.left) / rect.width
+    onNavigate(Math.round(posMin + frac * (range - 1)))
+  }
+
+  const indLeft = ((windowStart - posMin) / range) * 100
+  const indWidth = (WINDOW_SIZE / range) * 100
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-[10px] text-gray-400">
+        <span>{posMin}</span>
+        <span className="text-gray-500 font-medium">
+          Validation status by position — click to navigate · {sortedPositions.length} positions covered
+        </span>
+        <span>{posMax}</span>
+      </div>
+      <div
+        className="relative h-5 rounded overflow-hidden cursor-crosshair"
+        style={{ background: '#E5E7EB' }}
+        onClick={handleClick}
+        title="Click to navigate"
+      >
+        <div className="absolute inset-0 flex">
+          {Array.from({ length: range }, (_, i) => {
+            const pos = posMin + i
+            return <div key={pos} style={{ flex: 1, background: posColor(pos) }} title={`AA ${pos}`} />
+          })}
+        </div>
+        <div
+          className="absolute top-0 bottom-0 border-2 border-gray-700 rounded-sm pointer-events-none"
+          style={{ left: `${Math.max(0, indLeft)}%`, width: `${Math.min(indWidth, 100 - Math.max(0, indLeft))}%` }}
+        />
+      </div>
+      <div className="flex gap-3 text-[10px] text-gray-400">
+        <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm inline-block" style={{ background: '#86EFAC' }} />Pass</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm inline-block" style={{ background: '#FDE68A' }} />Warn</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm inline-block" style={{ background: '#FCA5A5' }} />Fail</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-gray-200 inline-block" />No oligos</span>
+      </div>
+    </div>
+  )
+}
+
+function OligoGrid({
+  positionMap, windowStart, posMin, posMax,
+}: {
+  positionMap: Map<number, OligoPositionData>
+  windowStart: number
+  posMin: number; posMax: number
+}) {
+  const windowPositions = Array.from(
+    { length: WINDOW_SIZE },
+    (_, i) => windowStart + i,
+  ).filter(p => p >= posMin && p <= posMax)
+
+  // Only show AA rows that appear as mutations in this window
+  const aasInWindow = new Set<string>()
+  let hasIndel = false
+  for (const pos of windowPositions) {
+    const d = positionMap.get(pos)
+    if (!d) continue
+    for (const aa of d.mutations.keys()) aasInWindow.add(aa)
+    if (d.indelStatus !== null) hasIndel = true
+  }
+  const displayAas = AA_ORDER.filter(aa => aasInWindow.has(aa))
+
+  const CELL = 16
+  const LABEL_W = 26
+
+  return (
+    <div className="overflow-x-auto">
+      <div style={{ minWidth: LABEL_W + windowPositions.length * (CELL + 1) }}>
+        {/* Position number header */}
+        <div className="flex mb-1">
+          <div style={{ width: LABEL_W }} />
+          {windowPositions.map(pos => (
+            <div key={pos} style={{ width: CELL, marginRight: 1, fontSize: 8 }} className="text-center text-gray-400 font-mono">
+              {pos}
+            </div>
+          ))}
+        </div>
+
+        {/* WT row */}
+        <div className="flex items-center mb-1">
+          <div style={{ width: LABEL_W, fontSize: 8 }} className="text-gray-400 font-semibold text-right pr-1.5">WT</div>
+          {windowPositions.map(pos => {
+            const d = positionMap.get(pos)
+            const aa = d?.wtAa ?? '?'
+            const bg = AA_BG[aa] ?? '#F3F4F6'
+            const color = AA_COLOR[aa] ?? '#6B7280'
+            return (
+              <div key={pos} style={{ width: CELL, marginRight: 1 }} className="flex justify-center">
+                {d ? (
+                  <span
+                    title={`${aa}${pos}`}
+                    style={{
+                      background: bg, color,
+                      width: CELL, height: CELL, fontSize: 8,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      borderRadius: 3, fontWeight: 700, fontFamily: 'monospace', flexShrink: 0,
+                      border: `1px solid ${bg}`,
+                    }}
+                  >
+                    {aa}
+                  </span>
+                ) : (
+                  <span style={{ width: CELL, height: CELL, display: 'block' }} />
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="border-t border-gray-200 mb-1" />
+
+        {/* AA substitution rows — only AAs present in this window */}
+        {displayAas.map(aa => (
+          <div key={aa} className="flex items-center" style={{ marginBottom: 1 }}>
+            <div
+              style={{ width: LABEL_W, fontSize: 8, color: AA_COLOR[aa] ?? '#6B7280' }}
+              className="font-mono font-bold text-right pr-1.5"
+            >
+              {aa}
+            </div>
+            {windowPositions.map(pos => {
+              const d = positionMap.get(pos)
+              const status = d?.mutations.get(aa) ?? null
+              return (
+                <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
+                  {status ? (
+                    <div
+                      title={`${d?.wtAa ?? '?'}${pos}${aa}: ${status}`}
+                      style={{
+                        width: CELL - 2, height: CELL - 2, borderRadius: 2,
+                        background: STATUS_BG[status],
+                        border: `1px solid ${STATUS_BORDER[status]}`,
+                      }}
+                    />
+                  ) : d?.wtAa === aa ? (
+                    <div style={{ width: CELL - 2, height: CELL - 2, borderRadius: 2, background: '#F3F4F6' }} />
+                  ) : (
+                    <div style={{ width: CELL - 2, height: CELL - 2, borderRadius: 2, background: '#F9FAFB' }} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+
+        {/* Indel row, only if at least one indel in the window */}
+        {hasIndel && (
+          <>
+            <div className="border-t border-gray-200 mt-1 mb-1" />
+            <div className="flex items-center">
+              <div style={{ width: LABEL_W, fontSize: 8, color: '#7C3AED' }} className="font-mono font-bold text-right pr-1.5">
+                Indel
+              </div>
+              {windowPositions.map(pos => {
+                const d = positionMap.get(pos)
+                const status = d?.indelStatus ?? null
+                return (
+                  <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
+                    {status ? (
+                      <div
+                        title={`Indel at AA ${pos}: ${status}`}
+                        style={{
+                          width: CELL - 2, height: CELL - 2, borderRadius: 2,
+                          background: STATUS_BG[status],
+                          border: `1px solid ${STATUS_BORDER[status]}`,
+                        }}
+                      />
+                    ) : (
+                      <div style={{ width: CELL - 2, height: CELL - 2, borderRadius: 2, background: '#F9FAFB' }} />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─── UI components ────────────────────────────────────────────────────────────
@@ -680,6 +980,18 @@ export function OligoValidator({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassed, setShowPassed] = useState(false)
+  const [windowStart, setWindowStart] = useState(1)
+
+  function navigate(delta: number) {
+    if (!result) return
+    setWindowStart(s => Math.max(result.posMin, Math.min(result.posMax - WINDOW_SIZE + 1, s + delta)))
+  }
+
+  function navigateTo(pos: number) {
+    if (!result) return
+    const centered = pos - Math.floor(WINDOW_SIZE / 2)
+    setWindowStart(Math.max(result.posMin, Math.min(result.posMax - WINDOW_SIZE + 1, centered)))
+  }
 
   useEffect(() => {
     if (!refText || !csvText) { setResult(null); return }
@@ -688,7 +1000,9 @@ export function OligoValidator({ open, onClose }: Props) {
     const parsed = manualCdsStart.trim() ? parseInt(manualCdsStart) - 1 : undefined  // convert 1-based UI to 0-based
     const t = setTimeout(() => {
       try {
-        setResult(runValidation(refText, csvText, parsed !== undefined && !isNaN(parsed) ? parsed : undefined))
+        const r = runValidation(refText, csvText, parsed !== undefined && !isNaN(parsed) ? parsed : undefined)
+        setResult(r)
+        setWindowStart(r.posMin)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Validation failed')
         setResult(null)
@@ -815,6 +1129,55 @@ export function OligoValidator({ open, onClose }: Props) {
                 <SummaryStat label="Warn" value={counts.warn.toLocaleString()} color="amber" />
                 <SummaryStat label="Fail" value={counts.fail.toLocaleString()} color="red" />
               </div>
+
+              {result.sortedPositions.length > 0 && (
+                <section className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Position overview</p>
+                  <OligoRibbon
+                    sortedPositions={result.sortedPositions}
+                    posMin={result.posMin} posMax={result.posMax}
+                    positionMap={result.positionMap}
+                    windowStart={windowStart}
+                    onNavigate={navigateTo}
+                  />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(-WINDOW_SIZE)}
+                      disabled={windowStart <= result.posMin}
+                      className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <span className="text-xs text-gray-500">
+                      AA{' '}
+                      <input
+                        type="number"
+                        value={windowStart}
+                        min={result.posMin}
+                        max={Math.max(result.posMin, result.posMax - WINDOW_SIZE + 1)}
+                        onChange={(e) => navigateTo(parseInt(e.target.value) || result.posMin)}
+                        className="w-16 text-center border border-gray-200 rounded px-1 py-0.5 text-xs font-mono mx-1"
+                      />
+                      – {Math.min(windowStart + WINDOW_SIZE - 1, result.posMax)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => navigate(WINDOW_SIZE)}
+                      disabled={windowStart + WINDOW_SIZE > result.posMax}
+                      className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                  <OligoGrid
+                    positionMap={result.positionMap}
+                    windowStart={windowStart}
+                    posMin={result.posMin}
+                    posMax={result.posMax}
+                  />
+                </section>
+              )}
 
               {counts.frameshifts > 0 && (
                 <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
