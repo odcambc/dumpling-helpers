@@ -292,6 +292,7 @@ function classifyChange(
   cdsNtPos: number,
   refMid: string,
   oligoMid: string,
+  cdsContext?: string,
 ): ActualChange {
   const type: 'sub' | 'del' | 'ins' =
     refMid.length === oligoMid.length ? 'sub' :
@@ -302,11 +303,29 @@ function classifyChange(
   const isFrameshift = type !== 'sub' && sizeDiff % 3 !== 0
   const aaPos = Math.floor(cdsNtPos / 3) + 1
 
-  // Translate only for single-codon substitutions that start at a codon boundary
-  const wtAa = (type === 'sub' && isCodonAligned && refMid.length === 3)
-    ? (CODON_TABLE[refMid] ?? '?') : null
-  const mutAa = (type === 'sub' && isCodonAligned && oligoMid.length === 3)
-    ? (CODON_TABLE[oligoMid] ?? '?') : null
+  let wtAa: string | null = null
+  let mutAa: string | null = null
+
+  if (type === 'sub') {
+    const codonStart = Math.floor(cdsNtPos / 3) * 3
+    const withinSingleCodon = Math.floor((cdsNtPos + refMid.length - 1) / 3) === Math.floor(cdsNtPos / 3)
+
+    if (isCodonAligned && refMid.length === 3) {
+      // The gapless diff captured the whole codon
+      wtAa = CODON_TABLE[refMid] ?? '?'
+      mutAa = CODON_TABLE[oligoMid] ?? '?'
+    } else if (withinSingleCodon && cdsContext) {
+      // Partial-codon change (e.g. TCT→TGC where the leading T is in the shared prefix).
+      // Reconstruct the full ref codon from context, then apply the oligo bases.
+      const offset = cdsNtPos - codonStart
+      const refCodon = cdsContext.slice(codonStart, codonStart + 3)
+      const mutCodon = refCodon.slice(0, offset) + oligoMid + refCodon.slice(offset + refMid.length)
+      if (refCodon.length === 3 && mutCodon.length === 3) {
+        wtAa = CODON_TABLE[refCodon] ?? '?'
+        mutAa = CODON_TABLE[mutCodon] ?? '?'
+      }
+    }
+  }
 
   return { cdsNtPos, aaPos, isCodonAligned, isFrameshift, type, refBases: refMid, oligoBases: oligoMid, wtAa, mutAa }
 }
@@ -372,7 +391,7 @@ function validateOligo(
   }
 
   const mutCdsNtPos = oligoStartInCds + prefixLen
-  const change = classifyChange(mutCdsNtPos, refMid, oligoMid)
+  const change = classifyChange(mutCdsNtPos, refMid, oligoMid, cdsUpper)
   const isFrameshift = change.isFrameshift
 
   if (isFrameshift) {
@@ -382,8 +401,10 @@ function validateOligo(
     )
   }
 
-  if (!change.isCodonAligned) {
-    warn(`Mutation starts at CDS nt ${mutCdsNtPos + 1} (frame +${mutCdsNtPos % 3}) — not at a codon boundary`)
+  // Codon-boundary misalignment only matters for indels (predicts frameshift start site).
+  // Substitutions that sit entirely within one codon are valid regardless of which base changes.
+  if (change.type !== 'sub' && !change.isCodonAligned) {
+    warn(`Indel starts at CDS nt ${mutCdsNtPos + 1} (frame +${mutCdsNtPos % 3}) — not at a codon boundary`)
   }
 
   // Step 4: Validate against claimed mutation or indel
