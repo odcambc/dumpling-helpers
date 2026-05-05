@@ -263,16 +263,23 @@ function buildKmerIndex(cdsUpper: string): Map<string, number[]> {
 /**
  * Find where an oligo aligns in the CDS using k-mer voting.
  * Each k-mer from the oligo that matches the CDS casts a vote for a particular
- * alignment start position. Adapter k-mers generate no votes.
+ * alignment start position. Adapter k-mers generate no votes naturally.
  *
- * Returns the most-voted 0-based CDS start position of the oligo (may be negative
- * if the oligo's 5' adapter extends before the CDS start), or null if no k-mers matched.
+ * Returns:
+ * - `pos`: the most-voted 0-based CDS position corresponding to oligo[0] (may be a
+ *   virtual/extrapolated position when a 5' adapter precedes the CDS-homologous region)
+ * - `oligoCdsStart`: first oligo position where a CDS k-mer was found — marks the end
+ *   of the 5' adapter
+ * - `oligoCdsEnd`: last such position + KMER_SIZE — marks the start of the 3' adapter
+ * - `confidence`: fraction of matching k-mers that agreed on `pos`
  */
 function findOligoAlignPos(
   oligoUpper: string,
   kmerIndex: Map<string, number[]>,
-): { pos: number; confidence: number } | null {
+): { pos: number; confidence: number; oligoCdsStart: number; oligoCdsEnd: number } | null {
   const votes = new Map<number, number>()
+  const firstMatchForPos = new Map<number, number>()
+  const lastMatchForPos = new Map<number, number>()
   let totalKmers = 0
 
   for (let i = 0; i + KMER_SIZE <= oligoUpper.length; i++) {
@@ -282,6 +289,8 @@ function findOligoAlignPos(
     for (const cdsPos of cdsPositions) {
       const candidateStart = cdsPos - i
       votes.set(candidateStart, (votes.get(candidateStart) ?? 0) + 1)
+      if (!firstMatchForPos.has(candidateStart)) firstMatchForPos.set(candidateStart, i)
+      lastMatchForPos.set(candidateStart, i)
     }
     totalKmers++
   }
@@ -293,8 +302,15 @@ function findOligoAlignPos(
     if (count > bestVotes) { bestVotes = count; bestPos = pos }
   }
 
-  // Confidence: fraction of oligo k-mers that agreed on this position
-  return { pos: bestPos, confidence: totalKmers > 0 ? bestVotes / totalKmers : 0 }
+  const firstMatch = firstMatchForPos.get(bestPos) ?? 0
+  const lastMatch = lastMatchForPos.get(bestPos) ?? (oligoUpper.length - KMER_SIZE)
+
+  return {
+    pos: bestPos,
+    confidence: totalKmers > 0 ? bestVotes / totalKmers : 0,
+    oligoCdsStart: firstMatch,
+    oligoCdsEnd: Math.min(oligoUpper.length, lastMatch + KMER_SIZE),
+  }
 }
 
 // ─── Mutation identification ──────────────────────────────────────────────────
@@ -397,16 +413,25 @@ function validateOligo(
     warn(`Low alignment confidence (${(alignment.confidence * 100).toFixed(0)}% of k-mers agreed) — result may be unreliable`)
   }
 
-  const { pos: cdsAlignPos } = alignment
+  const { pos: cdsAlignPos, oligoCdsStart, oligoCdsEnd } = alignment
 
-  // Step 2: Extract the CDS-overlapping region
-  const oligoStartInCds = Math.max(0, cdsAlignPos)
-  const oligoStartInOligo = Math.max(0, -cdsAlignPos)
-  const cdsEndPos = Math.min(cdsUpper.length, cdsAlignPos + upper.length)
-  const oligoEndPos = oligoStartInOligo + (cdsEndPos - oligoStartInCds)
+  // Step 2: Extract only the CDS-homologous region of the oligo, excluding adapters.
+  //
+  // cdsAlignPos is where oligo[0] would map in the CDS (extrapolated — may be virtual
+  // when a 5' adapter precedes the CDS region). oligoCdsStart/oligoCdsEnd are the oligo
+  // positions where CDS-matching k-mers first/last appeared, giving us the adapter extent.
+  //
+  // rawCdsStart = cdsAlignPos + oligoCdsStart de-extrapolates to the true CDS start covered.
+  const rawCdsStart = cdsAlignPos + oligoCdsStart
+  const rawCdsEnd   = cdsAlignPos + oligoCdsEnd
+  const cdsRegionStart = Math.max(0, rawCdsStart)
+  const cdsRegionEnd   = Math.min(cdsUpper.length, rawCdsEnd)
+  // Adjust oligo window if CDS boundary clamped either end
+  const oligoRegionStart = oligoCdsStart + (cdsRegionStart - rawCdsStart)
+  const oligoRegionEnd   = oligoCdsEnd   - (rawCdsEnd - cdsRegionEnd)
 
-  const cdsRegion = cdsUpper.slice(oligoStartInCds, cdsEndPos)
-  const oligoRegion = upper.slice(oligoStartInOligo, oligoEndPos)
+  const cdsRegion  = cdsUpper.slice(cdsRegionStart, cdsRegionEnd)
+  const oligoRegion = upper.slice(oligoRegionStart, oligoRegionEnd)
 
   if (cdsRegion.length === 0) {
     fail('Oligo does not overlap with CDS region')
@@ -426,7 +451,7 @@ function validateOligo(
     return { id, claimed, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
   }
 
-  const mutCdsNtPos = oligoStartInCds + prefixLen
+  const mutCdsNtPos = cdsRegionStart + prefixLen
   const change = classifyChange(mutCdsNtPos, refMid, oligoMid, cdsUpper)
   const isFrameshift = change.isFrameshift
 
