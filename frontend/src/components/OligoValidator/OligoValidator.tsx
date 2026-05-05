@@ -415,107 +415,101 @@ function validateOligo(
 
   const { pos: cdsAlignPos, oligoCdsStart, oligoCdsEnd } = alignment
 
-  // Step 2: Extract only the CDS-homologous region of the oligo, excluding adapters.
+  // ── DMS substitution oligos ───────────────────────────────────────────────
+  // Validated entirely by direct codon lookup; gapless alignment is NOT used.
   //
-  // cdsAlignPos is where oligo[0] would map in the CDS (extrapolated — may be virtual
-  // when a 5' adapter precedes the CDS region). oligoCdsStart/oligoCdsEnd are the oligo
-  // positions where CDS-matching k-mers first/last appeared, giving us the adapter extent.
-  //
-  // rawCdsStart = cdsAlignPos + oligoCdsStart de-extrapolates to the true CDS start covered.
-  const rawCdsStart = cdsAlignPos + oligoCdsStart
-  const rawCdsEnd   = cdsAlignPos + oligoCdsEnd
+  // Gapless alignment is unreliable for tiling libraries: each oligo has 5'/3'
+  // adapter sequences whose length we can only estimate from k-mer positions, and
+  // that estimate breaks down when the mutation is near the adapter-CDS boundary.
+  // The direct codon check avoids this: it uses cdsAlignPos (robustly determined
+  // by k-mer voting across the whole oligo) plus the full oligo sequence, so it
+  // works correctly regardless of adapter length or mutation position.
+  if (claimed) {
+    const claimedCdsNtStart = (claimed.pos - 1) * 3
+    const oligoCodonStart   = claimedCdsNtStart - cdsAlignPos
+
+    if (oligoCodonStart < 0 || oligoCodonStart + 3 > upper.length) {
+      warn(`Claimed position ${claimed.pos} (CDS nt ${claimedCdsNtStart + 1}–${claimedCdsNtStart + 3}) is outside the oligo's CDS overlap`)
+      return { id, claimed, claimedIndel: null, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    }
+
+    const oligoCodon = upper.slice(oligoCodonStart, oligoCodonStart + 3)
+    const refCodon   = cdsUpper.slice(claimedCdsNtStart, claimedCdsNtStart + 3)
+    const oligoAa    = CODON_TABLE[oligoCodon] ?? '?'
+    const refAa      = CODON_TABLE[refCodon] ?? '?'
+    const isSyn      = claimed.wt === claimed.mut
+
+    if (refAa !== claimed.wt) {
+      fail(`Position ${claimed.pos}: reference has ${refAa}, ID claims WT is ${claimed.wt} — position shift or wrong reference?`)
+    } else if (isSyn) {
+      if (oligoAa !== claimed.wt) {
+        fail(`Position ${claimed.pos}: claimed synonymous (${claimed.wt}→${claimed.wt}), oligo encodes ${oligoAa} (codon: ${oligoCodon})`)
+      }
+    } else {
+      if (oligoCodon === refCodon) {
+        fail(`Position ${claimed.pos}: claimed ${claimed.wt}→${claimed.mut} but oligo matches reference — no mutation at this position`)
+      } else if (oligoAa !== claimed.mut) {
+        fail(`Position ${claimed.pos}: claimed ${claimed.wt}→${claimed.mut}, oligo encodes ${claimed.wt}→${oligoAa} (codon: ${oligoCodon})`)
+      }
+    }
+
+    const change: ActualChange = {
+      cdsNtPos: claimedCdsNtStart,
+      aaPos: claimed.pos,
+      isCodonAligned: true,
+      isFrameshift: false,
+      type: 'sub',
+      refBases: refCodon,
+      oligoBases: oligoCodon,
+      wtAa: refAa,
+      mutAa: oligoAa,
+    }
+
+    return { id, claimed, claimedIndel: null, cdsAlignPos, changes: [change], isFrameshift: false, problems, status }
+  }
+
+  // ── Indel and unknown oligos: gapless alignment ───────────────────────────
+  // Extract the CDS-homologous region using k-mer hit extent to trim adapters.
+  const rawCdsStart    = cdsAlignPos + oligoCdsStart
+  const rawCdsEnd      = cdsAlignPos + oligoCdsEnd
   const cdsRegionStart = Math.max(0, rawCdsStart)
   const cdsRegionEnd   = Math.min(cdsUpper.length, rawCdsEnd)
-  // Adjust oligo window if CDS boundary clamped either end
   const oligoRegionStart = oligoCdsStart + (cdsRegionStart - rawCdsStart)
   const oligoRegionEnd   = oligoCdsEnd   - (rawCdsEnd - cdsRegionEnd)
 
-  const cdsRegion  = cdsUpper.slice(cdsRegionStart, cdsRegionEnd)
+  const cdsRegion   = cdsUpper.slice(cdsRegionStart, cdsRegionEnd)
   const oligoRegion = upper.slice(oligoRegionStart, oligoRegionEnd)
 
   if (cdsRegion.length === 0) {
     fail('Oligo does not overlap with CDS region')
-    return { id, claimed, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
   }
 
-  // Step 3: Find the mutation site via gapless alignment
   const { prefixLen, refMid, oligoMid } = gaplessAlign(cdsRegion, oligoRegion)
 
   if (refMid.length === 0 && oligoMid.length === 0) {
-    // Perfect match — no changes at all
-    if (claimed && claimed.wt !== claimed.mut) {
-      fail(`No nucleotide changes found in CDS region but ID claims ${claimed.wt}${claimed.pos}${claimed.mut}`)
-    } else if (claimedIndel) {
+    if (claimedIndel) {
       fail(`No deletion/insertion found in CDS region for claimed ${claimedIndel.type} at pos ${claimedIndel.pos}`)
     }
-    return { id, claimed, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
   }
 
   const mutCdsNtPos = cdsRegionStart + prefixLen
-  const change = classifyChange(mutCdsNtPos, refMid, oligoMid, cdsUpper)
+  const change      = classifyChange(mutCdsNtPos, refMid, oligoMid, cdsUpper)
   const isFrameshift = change.isFrameshift
 
   if (isFrameshift) {
-    fail(
-      `Frameshift at CDS nt ${mutCdsNtPos + 1}: ` +
-      `${refMid.length}nt→${oligoMid.length}nt (diff ${Math.abs(refMid.length - oligoMid.length)}nt, not divisible by 3)`
-    )
+    fail(`Frameshift at CDS nt ${mutCdsNtPos + 1}: ${refMid.length}nt→${oligoMid.length}nt (diff ${Math.abs(refMid.length - oligoMid.length)}nt, not divisible by 3)`)
   }
-
-  // Codon-boundary misalignment only matters for indels (predicts frameshift start site).
-  // Substitutions that sit entirely within one codon are valid regardless of which base changes.
   if (change.type !== 'sub' && !change.isCodonAligned) {
     warn(`Indel starts at CDS nt ${mutCdsNtPos + 1} (frame +${mutCdsNtPos % 3}) — not at a codon boundary`)
   }
 
-  // Step 4: Validate against claimed mutation or indel
-  if (claimed) {
-    const isSyn = claimed.wt === claimed.mut
-
-    // Direct codon check at the claimed position (more reliable than inferring from gapless align)
-    const claimedCdsNtStart = (claimed.pos - 1) * 3
-    const oligoCodonStart = claimedCdsNtStart - cdsAlignPos
-    if (oligoCodonStart >= 0 && oligoCodonStart + 3 <= upper.length) {
-      const oligoCodon = upper.slice(oligoCodonStart, oligoCodonStart + 3)
-      const refCodon = cdsUpper.slice(claimedCdsNtStart, claimedCdsNtStart + 3)
-      const oligoAa = CODON_TABLE[oligoCodon] ?? '?'
-      const refAa = CODON_TABLE[refCodon] ?? '?'
-
-      if (refAa !== claimed.wt) {
-        fail(`Position ${claimed.pos}: reference has ${refAa}, ID claims WT is ${claimed.wt} — position shift?`)
-      }
-      if (isSyn) {
-        if (oligoAa !== claimed.wt) {
-          fail(
-            `Position ${claimed.pos}: claimed synonymous (${claimed.wt}→${claimed.wt}), ` +
-            `oligo encodes ${claimed.wt}→${oligoAa} (codon: ${oligoCodon})`
-          )
-        }
-      } else {
-        if (oligoAa !== claimed.mut) {
-          fail(
-            `Position ${claimed.pos}: claimed ${claimed.wt}→${claimed.mut}, ` +
-            `oligo encodes ${claimed.wt}→${oligoAa} (codon: ${oligoCodon})`
-          )
-        }
-      }
-    } else {
-      warn(`Claimed position ${claimed.pos} (CDS nt ${claimedCdsNtStart + 1}–${claimedCdsNtStart + 3}) is outside the oligo's CDS overlap`)
-    }
-
-    // Check that the main mutation is at or near the claimed position
-    if (change.aaPos !== claimed.pos && Math.abs(change.aaPos - claimed.pos) >= 2) {
-      fail(`Position shift: largest mutation block found at AA ${change.aaPos}, claimed ${claimed.pos}`)
-    }
-
-  } else if (claimedIndel) {
+  if (claimedIndel) {
     const { type: indelType, lengthNt, pos } = claimedIndel
-    const expectedCodons = lengthNt / 3
-
     if (lengthNt % 3 !== 0) {
       fail(`Claimed ${indelType} length ${lengthNt}nt is not divisible by 3 — would cause frameshift`)
     }
-
     if (change.type !== (indelType === 'deletion' ? 'del' : 'ins')) {
       fail(`Expected ${indelType} but gapless alignment found ${change.type}`)
     } else {
@@ -528,15 +522,14 @@ function validateOligo(
       }
     }
   } else {
-    // Unknown ID — report what we found without a specific expected state
-    if (change.type === 'sub' && change.wtAa && change.mutAa) {
+    if (change.wtAa && change.mutAa) {
       warn(`Unparseable ID; found ${change.type} ${change.wtAa}${change.aaPos}${change.mutAa} at CDS nt ${mutCdsNtPos + 1}`)
     } else {
       warn(`Unparseable ID; found ${change.type} (${refMid.length}nt→${oligoMid.length}nt) at CDS nt ${mutCdsNtPos + 1}`)
     }
   }
 
-  return { id, claimed, claimedIndel, cdsAlignPos, changes: [change], isFrameshift, problems, status }
+  return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [change], isFrameshift, problems, status }
 }
 
 function mergeStatus(a: OligoStatus, b: OligoStatus): OligoStatus {
