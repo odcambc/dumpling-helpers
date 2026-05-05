@@ -631,19 +631,26 @@ function buildOligoPositionMap(
   }
 
   for (const r of results) {
-    const pos = r.claimed?.pos ?? r.claimedIndel?.pos ?? r.changes[0]?.aaPos ?? null
-    if (pos === null || pos === undefined) continue
-
-    const d = getOrCreate(pos)
-    d.oligoCount++
-
     if (r.claimed) {
+      const d = getOrCreate(r.claimed.pos)
+      d.oligoCount++
       if (d.wtAa === '?') d.wtAa = r.claimed.wt
       if (!d.mutations.has(r.claimed.mut)) d.mutations.set(r.claimed.mut, { pass: 0, warn: 0, fail: 0 })
       d.mutations.get(r.claimed.mut)![r.status]++
     } else if (r.claimedIndel) {
-      if (!d.indelCounts) d.indelCounts = { pass: 0, warn: 0, fail: 0 }
-      d.indelCounts[r.status]++
+      const { type: indelType, lengthNt, pos: indelPos } = r.claimedIndel
+      // Deletions erase multiple WT residues — mark every covered position.
+      // Insertions add new residues at a single point — attribute to start only.
+      const span = indelType === 'deletion' ? Math.max(1, Math.floor(lengthNt / 3)) : 1
+      for (let i = 0; i < span; i++) {
+        const d = getOrCreate(indelPos + i)
+        d.oligoCount++
+        if (!d.indelCounts) d.indelCounts = { pass: 0, warn: 0, fail: 0 }
+        d.indelCounts[r.status]++
+      }
+    } else {
+      const pos = r.changes[0]?.aaPos ?? null
+      if (pos !== null) getOrCreate(pos).oligoCount++
     }
   }
 
@@ -831,7 +838,7 @@ function OligoGrid({
     const d = positionMap.get(pos)
     if (!d) continue
     for (const aa of d.mutations.keys()) aasInWindow.add(aa)
-    if (d.indelStatus !== null) hasIndel = true
+    if (d.indelCounts !== null) hasIndel = true
   }
   const displayAas = AA_ORDER.filter(aa => aasInWindow.has(aa))
 
@@ -1022,11 +1029,14 @@ function OligoRow({ result }: { result: OligoResult }) {
               {result.claimed.wt}{result.claimed.pos}{result.claimed.mut}
             </span>
           )}
-          {result.claimedIndel && (
-            <span className="text-gray-400 font-mono text-[10px]">
-              {result.claimedIndel.type === 'deletion' ? 'Δ' : '+'}{result.claimedIndel.lengthNt / 3}aa@{result.claimedIndel.pos}
-            </span>
-          )}
+          {result.claimedIndel && (() => {
+            const { type, lengthNt, pos } = result.claimedIndel
+            const n = Math.floor(lengthNt / 3)
+            const label = type === 'deletion'
+              ? n > 1 ? `Δ${n}aa@${pos}–${pos + n - 1}` : `Δ1aa@${pos}`
+              : `+${n}aa@${pos}`
+            return <span className="text-gray-400 font-mono text-[10px]">{label}</span>
+          })()}
           {ch && result.status !== 'pass' && (
             <span className="font-mono text-[10px] text-gray-500 bg-white px-1 rounded border border-gray-200">
               {ch.refBases.length <= 6 && ch.oligoBases.length <= 6
