@@ -88,3 +88,6 @@ frontend/dist/
 .env.local
 .env*.local
 
+# Local example data (not for distribution)
+examples/
+
