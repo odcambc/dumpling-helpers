@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Union
+
 from pydantic import BaseModel, Field
 
 
@@ -32,5 +32,5 @@ class ConfigPayload(BaseModel):
     rosace_local: bool = False
     lilace_local: bool = False
     bbtools_use_bgzip: bool = True
-    adapters: Union[str, list[str]] = Field(default_factory=list)
-    contaminants: Union[str, list[str]] = Field(default_factory=list)
+    adapters: str | list[str] = Field(default_factory=list)
+    contaminants: str | list[str] = Field(default_factory=list)

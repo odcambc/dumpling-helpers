@@ -1,0 +1,28 @@
+{
+  "name": "dumpling-helpers",
+  "private": true,
+  "scripts": {
+    "dev":     "concurrently --names \"api,web\" --prefix-colors \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd backend && uv run uvicorn app.main:app --reload --port 8000",
+    "dev:web": "npm run --prefix frontend dev",
+
+    "build":   "npm run --prefix frontend build",
+
+    "check":        "npm run check:web && npm run check:api",
+    "check:web":    "npm run --prefix frontend typecheck",
+    "check:api":    "cd backend && uv run ruff check . && uv run ruff format --check .",
+
+    "lint":         "npm run lint:web && npm run lint:api",
+    "lint:web":     "npm run --prefix frontend lint",
+    "lint:api":     "cd backend && uv run ruff check . --fix",
+
+    "format":       "npm run format:web && npm run format:api",
+    "format:web":   "npm run --prefix frontend lint:fix",
+    "format:api":   "cd backend && uv run ruff format .",
+
+    "install:all":  "npm install && npm install --prefix frontend && cd backend && uv sync"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

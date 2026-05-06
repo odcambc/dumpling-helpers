@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -8,9 +8,9 @@ class SampleRow(BaseModel):
     condition: str
     replicate: int
     file: str
-    time: Optional[float] = None
-    bin: Optional[int] = None
-    tile: Optional[int] = None
+    time: float | None = None
+    bin: int | None = None
+    tile: int | None = None
 
 
 class ExperimentsPayload(BaseModel):
@@ -20,7 +20,7 @@ class ExperimentsPayload(BaseModel):
 
 
 class GeneratePayload(BaseModel):
-    config: "ConfigPayload"
+    config: ConfigPayload
     experiments: ExperimentsPayload
 
 
