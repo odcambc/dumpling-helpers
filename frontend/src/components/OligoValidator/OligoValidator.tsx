@@ -65,12 +65,15 @@ interface ClaimedMutation {
 }
 
 /**
- * Parsed from `Gene_delete-N_L-P` / `Gene_ins-N_L-P` IDs where
- * L ∈ {3,6,9} is the length in bp and P is the 1-based AA start position.
+ * Parsed from indel IDs like `Gene_delete-N_L-P` / `Gene_ins-N_L-P`.
+ * `claimedLength` is the raw number from the ID — naming conventions vary
+ * (some libraries use codons, others nucleotides). The actual indel length
+ * is always determined by sequence alignment and may differ from this value.
  */
 interface ClaimedIndel {
   type: 'deletion' | 'insertion'
-  lengthNt: number
+  /** Raw length parsed from the ID — unit (nt vs codons) is convention-dependent */
+  claimedLength: number
   pos: number
 }
 
@@ -108,8 +111,11 @@ interface OligoPositionData {
   wtAa: string
   /** mut AA → { pass, warn, fail } counts across all oligos claiming that substitution */
   mutations: Map<string, { pass: number; warn: number; fail: number }>
-  /** Counts for indel oligos targeting this position, or null if none */
-  indelCounts: { pass: number; warn: number; fail: number } | null
+  /**
+   * Indel counts split by type and actual codon count.
+   * Key format: `"del:N"` | `"ins:N"` where N = codon count from alignment.
+   */
+  indelsByType: Map<string, { pass: number; warn: number; fail: number }>
   oligoCount: number
 }
 
@@ -173,7 +179,7 @@ function parseClaimedIndel(id: string): ClaimedIndel | null {
   if (!match) return null
   const keyword = match[1].toLowerCase()
   const type = keyword === 'ins' || keyword === 'insert' ? 'insertion' : 'deletion'
-  return { type, lengthNt: parseInt(match[2], 10), pos: parseInt(match[3], 10) }
+  return { type, claimedLength: parseInt(match[2], 10), pos: parseInt(match[3], 10) }
 }
 
 /**
@@ -467,85 +473,87 @@ function validateOligo(
     return { id, claimed, claimedIndel: null, cdsAlignPos, changes: [change], isFrameshift: false, problems, status }
   }
 
-  // ── Claimed indel: direct flanking-sequence verification ─────────────────
-  // Gapless alignment cannot detect indels: region extraction always yields
-  // equal-length cdsRegion and oligoRegion (mathematically, because both span
-  // the same oligo k-mer extent). Equal-length inputs → equal-length refMid/
-  // oligoMid → always classified as 'sub', never 'del' or 'ins'.
-  //
-  // Instead, for a claimed indel at CDS position D, we probe the oligo directly:
-  // verify that the FLANK bases immediately before and after the claimed site
-  // match the reference. k-mer voting may have converged on either the pre-indel
-  // or post-indel cdsAlignPos, so we try both candidate site positions.
+  // ── Claimed indel: alignment-driven length discovery + verification ──────
+  // We do NOT trust the length in the ID — naming conventions vary (codons vs.
+  // nucleotides) and design errors do occur. Instead:
+  //   1. Search for the pre-indel CDS flank directly in the oligo sequence.
+  //      This locates the indel site without needing to know L.
+  //   2. Scan candidate lengths (3, 6, 9 … 30 nt) and check the post-flank
+  //      at each offset. The first match is the actual indel length.
+  //   3. Cross-check the actual length against the claimed value (treating
+  //      the claimed number as codons, per common naming conventions) and
+  //      warn if they differ.
   if (claimedIndel) {
-    const { type: indelType, lengthNt, pos } = claimedIndel
+    const { type: indelType, claimedLength, pos } = claimedIndel
     const D = (pos - 1) * 3  // 0-based CDS nt start of the indel
 
-    if (lengthNt % 3 !== 0) {
-      fail(`Claimed ${indelType} length ${lengthNt} nt is not divisible by 3 — would cause a frameshift`)
+    const FLANK = 8
+    const preFlankSeq = cdsUpper.slice(Math.max(0, D - FLANK), D)
+
+    if (preFlankSeq.length < 3) {
+      fail(`${indelType} at position ${pos} is too close to the start of the CDS to verify via flanking sequence`)
+      return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
     }
 
-    // For a deletion of L nt at D:
-    //   pre-del k-mers vote for cdsAlignPos = C  → site = D - C
-    //   post-del k-mers vote for cdsAlignPos = C+L → site = D - (C+L) + L = D - C
-    //   Both resolve to the same site (D - C), so also try D - cdsAlignPos + L in
-    //   case the winning vote was post-del (i.e., C = cdsAlignPos - L).
-    // For an insertion of L nt at D:
-    //   pre-ins vote for C → site = D - C; post-ins vote for C-L → site = D - C.
-    //   Try also D - cdsAlignPos - L.
-    const FLANK = 6
-    const candidateSites: number[] = indelType === 'deletion'
-      ? [D - cdsAlignPos, D - cdsAlignPos + lengthNt]
-      : [D - cdsAlignPos, D - cdsAlignPos - lengthNt]
-
-    const checkFlank = (site: number): boolean => {
-      // Pre-flank: oligo[site-k] must match CDS[D-k]
-      for (let k = 1; k <= FLANK; k++) {
-        const oIdx = site - k; const cIdx = D - k
-        if (oIdx < 0 || cIdx < 0) break
-        if (upper[oIdx] !== cdsUpper[cIdx]) return false
+    // Collect all positions in the oligo where the pre-indel CDS flank ends.
+    // Adapter sequences won't match CDS-specific flanks, so false hits are rare.
+    const candidateSites: number[] = []
+    for (let i = 0; i + preFlankSeq.length <= upper.length; i++) {
+      if (upper.slice(i, i + preFlankSeq.length) === preFlankSeq) {
+        candidateSites.push(i + preFlankSeq.length)
       }
-      // Post-flank depends on indel type
+    }
+
+    if (candidateSites.length === 0) {
+      fail(`Could not locate pre-${indelType} CDS flank in the oligo — check reference file or oligo ID`)
+      return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
+    }
+
+    // For each candidate site, scan for the actual indel length
+    let indelSiteInOligo = -1
+    let actualLengthNt = -1
+
+    for (const site of candidateSites) {
+      if (actualLengthNt >= 0) break
       if (indelType === 'deletion') {
-        // oligo[site+k] must match CDS[D+L+k] (oligo resumes after the deletion)
-        for (let k = 0; k < FLANK; k++) {
-          const oIdx = site + k; const cIdx = D + lengthNt + k
-          if (oIdx >= upper.length || cIdx >= cdsUpper.length) break
-          if (upper[oIdx] !== cdsUpper[cIdx]) return false
+        for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
+          if (D + L + FLANK > cdsUpper.length) break
+          if (upper.slice(site, site + FLANK) === cdsUpper.slice(D + L, D + L + FLANK)) {
+            indelSiteInOligo = site; actualLengthNt = L
+          }
         }
       } else {
-        // oligo[site+L+k] must match CDS[D+k] (CDS resumes after the insertion)
-        for (let k = 0; k < FLANK; k++) {
-          const oIdx = site + lengthNt + k; const cIdx = D + k
-          if (oIdx >= upper.length || cIdx >= cdsUpper.length) break
-          if (upper[oIdx] !== cdsUpper[cIdx]) return false
+        if (D + FLANK > cdsUpper.length) break
+        const postFlank = cdsUpper.slice(D, D + FLANK)
+        for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
+          if (site + L + FLANK > upper.length) break
+          if (upper.slice(site + L, site + L + FLANK) === postFlank) {
+            indelSiteInOligo = site; actualLengthNt = L
+          }
         }
       }
-      return true
     }
 
-    let verified = false
-    let indelSiteInOligo = -1
-    for (const site of candidateSites) {
-      if (site >= 0 && site <= upper.length && checkFlank(site)) {
-        verified = true; indelSiteInOligo = site; break
-      }
+    if (actualLengthNt < 0) {
+      fail(`Could not determine ${indelType} length at position ${pos} — no codon-boundary ${indelType} found in the flanking region`)
+      return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
     }
 
-    if (!verified) {
-      fail(`Could not confirm ${indelType} of ${lengthNt} nt at position ${pos} — flanking sequence does not match reference`)
+    // Cross-check claimed vs actual (name may use codons or nucleotides)
+    const actualCodons = actualLengthNt / 3
+    if (claimedLength !== actualCodons && claimedLength !== actualLengthNt) {
+      warn(`Length mismatch: ID claims ${claimedLength} (likely codons), alignment found ${actualCodons} codon${actualCodons !== 1 ? 's' : ''} (${actualLengthNt} nt)`)
     }
 
-    const refBases = indelType === 'deletion' ? cdsUpper.slice(D, D + lengthNt) : ''
-    const oligoBases = indelType === 'insertion' && indelSiteInOligo >= 0
-      ? upper.slice(indelSiteInOligo, indelSiteInOligo + lengthNt) : ''
+    const refBases = indelType === 'deletion' ? cdsUpper.slice(D, D + actualLengthNt) : ''
+    const oligoBases = indelType === 'insertion' ? upper.slice(indelSiteInOligo, indelSiteInOligo + actualLengthNt) : ''
     const indelChange: ActualChange = {
       cdsNtPos: D, aaPos: pos,
-      isCodonAligned: D % 3 === 0, isFrameshift: lengthNt % 3 !== 0,
+      isCodonAligned: D % 3 === 0, isFrameshift: false,
       type: indelType === 'deletion' ? 'del' : 'ins',
       refBases, oligoBases, wtAa: null, mutAa: null,
     }
-    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [indelChange], isFrameshift: indelChange.isFrameshift, problems, status }
+    return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [indelChange], isFrameshift: false, problems, status }
   }
 
   // ── Unknown oligos: gapless alignment ─────────────────────────────────────
@@ -608,7 +616,7 @@ function effectiveStatus(counts: { pass: number; warn: number; fail: number }): 
 function positionEffectiveStatus(d: OligoPositionData): OligoStatus {
   let pass = 0, warn = 0, fail = 0
   for (const c of d.mutations.values()) { pass += c.pass; warn += c.warn; fail += c.fail }
-  if (d.indelCounts) { pass += d.indelCounts.pass; warn += d.indelCounts.warn; fail += d.indelCounts.fail }
+  for (const c of d.indelsByType.values()) { pass += c.pass; warn += c.warn; fail += c.fail }
   return effectiveStatus({ pass, warn, fail })
 }
 
@@ -623,7 +631,7 @@ function buildOligoPositionMap(
       map.set(pos, {
         wtAa: pos >= 1 && pos <= wtProtein.length ? wtProtein[pos - 1] : '?',
         mutations: new Map(),
-        indelCounts: null,
+        indelsByType: new Map(),
         oligoCount: 0,
       })
     }
@@ -638,15 +646,21 @@ function buildOligoPositionMap(
       if (!d.mutations.has(r.claimed.mut)) d.mutations.set(r.claimed.mut, { pass: 0, warn: 0, fail: 0 })
       d.mutations.get(r.claimed.mut)![r.status]++
     } else if (r.claimedIndel) {
-      const { type: indelType, lengthNt, pos: indelPos } = r.claimedIndel
+      const { type: indelType, pos: indelPos } = r.claimedIndel
+      const ch = r.changes[0]
+      // Use alignment-determined length (refBases for del, oligoBases for ins).
+      // Fall back to interpreting claimedLength as codons for unverified failures.
+      const actualNt = indelType === 'deletion' ? (ch?.refBases.length ?? 0) : (ch?.oligoBases.length ?? 0)
+      const n = actualNt > 0 ? Math.floor(actualNt / 3) : r.claimedIndel.claimedLength
+      const key = `${indelType === 'deletion' ? 'del' : 'ins'}:${n}`
       // Deletions erase multiple WT residues — mark every covered position.
       // Insertions add new residues at a single point — attribute to start only.
-      const span = indelType === 'deletion' ? Math.max(1, Math.floor(lengthNt / 3)) : 1
+      const span = indelType === 'deletion' && actualNt > 0 ? Math.floor(actualNt / 3) : 1
       for (let i = 0; i < span; i++) {
         const d = getOrCreate(indelPos + i)
         d.oligoCount++
-        if (!d.indelCounts) d.indelCounts = { pass: 0, warn: 0, fail: 0 }
-        d.indelCounts[r.status]++
+        if (!d.indelsByType.has(key)) d.indelsByType.set(key, { pass: 0, warn: 0, fail: 0 })
+        d.indelsByType.get(key)![r.status]++
       }
     } else {
       const pos = r.changes[0]?.aaPos ?? null
@@ -833,14 +847,20 @@ function OligoGrid({
 
   // Only show AA rows that appear as mutations in this window
   const aasInWindow = new Set<string>()
-  let hasIndel = false
+  const indelTypesInWindow = new Set<string>()
   for (const pos of windowPositions) {
     const d = positionMap.get(pos)
     if (!d) continue
     for (const aa of d.mutations.keys()) aasInWindow.add(aa)
-    if (d.indelCounts !== null) hasIndel = true
+    for (const key of d.indelsByType.keys()) indelTypesInWindow.add(key)
   }
   const displayAas = AA_ORDER.filter(aa => aasInWindow.has(aa))
+  // Sort indel types: deletions before insertions, shorter before longer
+  const sortedIndelTypes = [...indelTypesInWindow].sort((a, b) => {
+    const [aType, aN] = a.split(':'); const [bType, bN] = b.split(':')
+    if (aType !== bType) return aType === 'del' ? -1 : 1
+    return parseInt(aN) - parseInt(bN)
+  })
 
   const CELL = 16
   const LABEL_W = 26
@@ -926,36 +946,42 @@ function OligoGrid({
           </div>
         ))}
 
-        {/* Indel row, only if at least one indel in the window */}
-        {hasIndel && (
+        {/* Indel rows — one per type+length combination present in this window */}
+        {sortedIndelTypes.length > 0 && (
           <>
             <div className="border-t border-gray-200 mt-1 mb-1" />
-            <div className="flex items-center">
-              <div style={{ width: LABEL_W, fontSize: 8, color: '#7C3AED' }} className="font-mono font-bold text-right pr-1.5">
-                Indel
-              </div>
-              {windowPositions.map(pos => {
-                const d = positionMap.get(pos)
-                const counts = d?.indelCounts ?? null
-                const status = counts ? effectiveStatus(counts) : null
-                return (
-                  <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
-                    {status ? (
-                      <div
-                        title={`Indel at AA ${pos}: ${status} (${counts!.pass}✓ ${counts!.warn}⚠ ${counts!.fail}✗)`}
-                        style={{
-                          width: CELL - 2, height: CELL - 2, borderRadius: 2,
-                          background: STATUS_BG[status],
-                          border: `1px solid ${STATUS_BORDER[status]}`,
-                        }}
-                      />
-                    ) : (
-                      <div style={{ width: CELL - 2, height: CELL - 2, borderRadius: 2, background: '#F9FAFB' }} />
-                    )}
+            {sortedIndelTypes.map(key => {
+              const [indelKind, nStr] = key.split(':')
+              const label = (indelKind === 'del' ? 'Δ' : '+') + nStr
+              return (
+                <div key={key} className="flex items-center" style={{ marginBottom: 1 }}>
+                  <div style={{ width: LABEL_W, fontSize: 8, color: '#7C3AED' }} className="font-mono font-bold text-right pr-1.5">
+                    {label}
                   </div>
-                )
-              })}
-            </div>
+                  {windowPositions.map(pos => {
+                    const d = positionMap.get(pos)
+                    const counts = d?.indelsByType.get(key) ?? null
+                    const status = counts ? effectiveStatus(counts) : null
+                    return (
+                      <div key={pos} style={{ width: CELL, height: CELL, marginRight: 1 }} className="flex justify-center items-center">
+                        {status ? (
+                          <div
+                            title={`${label}aa at AA ${pos}: ${status} (${counts!.pass}✓ ${counts!.warn}⚠ ${counts!.fail}✗)`}
+                            style={{
+                              width: CELL - 2, height: CELL - 2, borderRadius: 2,
+                              background: STATUS_BG[status],
+                              border: `1px solid ${STATUS_BORDER[status]}`,
+                            }}
+                          />
+                        ) : (
+                          <div style={{ width: CELL - 2, height: CELL - 2, borderRadius: 2, background: '#F9FAFB' }} />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </>
         )}
       </div>
@@ -1030,8 +1056,11 @@ function OligoRow({ result }: { result: OligoResult }) {
             </span>
           )}
           {result.claimedIndel && (() => {
-            const { type, lengthNt, pos } = result.claimedIndel
-            const n = Math.floor(lengthNt / 3)
+            const { type, pos, claimedLength } = result.claimedIndel
+            const ch = result.changes[0]
+            // Use alignment-verified length when available; fall back to treating claimedLength as codons
+            const actualNt = type === 'deletion' ? (ch?.refBases.length ?? 0) : (ch?.oligoBases.length ?? 0)
+            const n = actualNt > 0 ? Math.floor(actualNt / 3) : claimedLength
             const label = type === 'deletion'
               ? n > 1 ? `Δ${n}aa@${pos}–${pos + n - 1}` : `Δ1aa@${pos}`
               : `+${n}aa@${pos}`
