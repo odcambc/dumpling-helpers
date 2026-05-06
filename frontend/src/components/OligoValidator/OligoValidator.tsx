@@ -535,7 +535,48 @@ function validateOligo(
     }
 
     if (actualLengthNt < 0) {
-      fail(`Could not determine ${indelType} length at position ${pos} — no codon-boundary ${indelType} found in the flanking region`)
+      // Secondary scan: look for non-codon-boundary indels (frameshifts).
+      // This gives a precise "frameshift of N nt" message instead of a generic failure.
+      let frameshiftLengthNt = -1
+      let frameshiftSite = -1
+
+      for (const site of candidateSites) {
+        if (frameshiftLengthNt >= 0) break
+        if (indelType === 'deletion') {
+          for (let L = 1; L <= 15 && frameshiftLengthNt < 0; L++) {
+            if (L % 3 === 0) continue  // already checked in primary scan
+            if (D + L + FLANK > cdsUpper.length) break
+            if (upper.slice(site, site + FLANK) === cdsUpper.slice(D + L, D + L + FLANK)) {
+              frameshiftSite = site; frameshiftLengthNt = L
+            }
+          }
+        } else {
+          if (D + FLANK > cdsUpper.length) break
+          const postFlank = cdsUpper.slice(D, D + FLANK)
+          for (let L = 1; L <= 15 && frameshiftLengthNt < 0; L++) {
+            if (L % 3 === 0) continue
+            if (site + L + FLANK > upper.length) break
+            if (upper.slice(site + L, site + L + FLANK) === postFlank) {
+              frameshiftSite = site; frameshiftLengthNt = L
+            }
+          }
+        }
+      }
+
+      if (frameshiftLengthNt >= 0) {
+        fail(`Frameshift ${indelType} of ${frameshiftLengthNt} nt at position ${pos} — not a multiple of 3, causes a reading frame shift`)
+        const refBases = indelType === 'deletion' ? cdsUpper.slice(D, D + frameshiftLengthNt) : ''
+        const oligoBases = indelType === 'insertion' ? upper.slice(frameshiftSite, frameshiftSite + frameshiftLengthNt) : ''
+        const fsChange: ActualChange = {
+          cdsNtPos: D, aaPos: pos,
+          isCodonAligned: D % 3 === 0, isFrameshift: true,
+          type: indelType === 'deletion' ? 'del' : 'ins',
+          refBases, oligoBases, wtAa: null, mutAa: null,
+        }
+        return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [fsChange], isFrameshift: true, problems, status }
+      }
+
+      fail(`Could not determine ${indelType} length at position ${pos} — no ${indelType} found matching the reference flanks (tried 1–30 nt)`)
       return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
     }
 
@@ -648,14 +689,24 @@ function buildOligoPositionMap(
     } else if (r.claimedIndel) {
       const { type: indelType, pos: indelPos } = r.claimedIndel
       const ch = r.changes[0]
-      // Use alignment-determined length (refBases for del, oligoBases for ins).
-      // Fall back to interpreting claimedLength as codons for unverified failures.
+      const prefix = indelType === 'deletion' ? 'del' : 'ins'
+      // Derive actual size from alignment (refBases for del, oligoBases for ins).
       const actualNt = indelType === 'deletion' ? (ch?.refBases.length ?? 0) : (ch?.oligoBases.length ?? 0)
-      const n = actualNt > 0 ? Math.floor(actualNt / 3) : r.claimedIndel.claimedLength
-      const key = `${indelType === 'deletion' ? 'del' : 'ins'}:${n}`
+      // Key format:
+      //   "del:N" / "ins:N"   — in-frame, N = codon count
+      //   "del:fsN" / "ins:fsN" — frameshift, N = nt count
+      //   "del:C" / "ins:C"   — unverified, C = claimedLength (treated as codons)
+      let key: string
+      if (r.isFrameshift && actualNt > 0) {
+        key = `${prefix}:fs${actualNt}`
+      } else if (actualNt > 0) {
+        key = `${prefix}:${Math.floor(actualNt / 3)}`
+      } else {
+        key = `${prefix}:${r.claimedIndel.claimedLength}`
+      }
       // Deletions erase multiple WT residues — mark every covered position.
-      // Insertions add new residues at a single point — attribute to start only.
-      const span = indelType === 'deletion' && actualNt > 0 ? Math.floor(actualNt / 3) : 1
+      // Insertions and frameshifts mark only the start position.
+      const span = !r.isFrameshift && indelType === 'deletion' && actualNt > 0 ? Math.floor(actualNt / 3) : 1
       for (let i = 0; i < span; i++) {
         const d = getOrCreate(indelPos + i)
         d.oligoCount++
@@ -741,7 +792,7 @@ function downloadReport(result: ValidationResult) {
       r.id,
       r.status,
       r.claimed ? `${r.claimed.wt}${r.claimed.pos}${r.claimed.mut}` : '',
-      r.claimedIndel ? `${r.claimedIndel.type} ${r.claimedIndel.lengthNt}nt@${r.claimedIndel.pos}` : '',
+      r.claimedIndel ? `${r.claimedIndel.type}@${r.claimedIndel.pos}` : '',
       r.cdsAlignPos ?? '',
       ch?.type ?? '',
       ch ? ch.cdsNtPos + 1 : '',
@@ -855,11 +906,17 @@ function OligoGrid({
     for (const key of d.indelsByType.keys()) indelTypesInWindow.add(key)
   }
   const displayAas = AA_ORDER.filter(aa => aasInWindow.has(aa))
-  // Sort indel types: deletions before insertions, shorter before longer
+  // Sort indel types: deletions before insertions, in-frame (codon-count) before frameshift,
+  // shorter before longer within each group.
   const sortedIndelTypes = [...indelTypesInWindow].sort((a, b) => {
     const [aType, aN] = a.split(':'); const [bType, bN] = b.split(':')
     if (aType !== bType) return aType === 'del' ? -1 : 1
-    return parseInt(aN) - parseInt(bN)
+    const aIsFs = aN.startsWith('fs')
+    const bIsFs = bN.startsWith('fs')
+    if (aIsFs !== bIsFs) return aIsFs ? 1 : -1  // in-frame first, frameshift last
+    const aNum = aIsFs ? parseInt(aN.slice(2)) : parseInt(aN)
+    const bNum = bIsFs ? parseInt(bN.slice(2)) : parseInt(bN)
+    return aNum - bNum
   })
 
   const CELL = 16
@@ -952,7 +1009,9 @@ function OligoGrid({
             <div className="border-t border-gray-200 mt-1 mb-1" />
             {sortedIndelTypes.map(key => {
               const [indelKind, nStr] = key.split(':')
-              const label = (indelKind === 'del' ? 'Δ' : '+') + nStr
+              const isFs = nStr.startsWith('fs')
+              const displayCount = isFs ? nStr.slice(2) : nStr
+              const label = (indelKind === 'del' ? 'Δ' : '+') + displayCount + (isFs ? 'nt' : '')
               return (
                 <div key={key} className="flex items-center" style={{ marginBottom: 1 }}>
                   <div style={{ width: LABEL_W, fontSize: 8, color: '#7C3AED' }} className="font-mono font-bold text-right pr-1.5">
@@ -1058,12 +1117,18 @@ function OligoRow({ result }: { result: OligoResult }) {
           {result.claimedIndel && (() => {
             const { type, pos, claimedLength } = result.claimedIndel
             const ch = result.changes[0]
-            // Use alignment-verified length when available; fall back to treating claimedLength as codons
             const actualNt = type === 'deletion' ? (ch?.refBases.length ?? 0) : (ch?.oligoBases.length ?? 0)
-            const n = actualNt > 0 ? Math.floor(actualNt / 3) : claimedLength
-            const label = type === 'deletion'
-              ? n > 1 ? `Δ${n}aa@${pos}–${pos + n - 1}` : `Δ1aa@${pos}`
-              : `+${n}aa@${pos}`
+            let label: string
+            if (result.isFrameshift && actualNt > 0) {
+              // Frameshift: show nucleotide count explicitly
+              const sym = type === 'deletion' ? 'Δ' : '+'
+              label = `${sym}${actualNt}nt@${pos}`
+            } else {
+              const n = actualNt > 0 ? Math.floor(actualNt / 3) : claimedLength
+              label = type === 'deletion'
+                ? n > 1 ? `Δ${n}aa@${pos}–${pos + n - 1}` : `Δ1aa@${pos}`
+                : `+${n}aa@${pos}`
+            }
             return <span className="text-gray-400 font-mono text-[10px]">{label}</span>
           })()}
           {ch && result.status !== 'pass' && (
