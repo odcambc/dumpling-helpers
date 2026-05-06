@@ -4,6 +4,7 @@ import { Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Toggle } from '@/components/ui/toggle'
 import { Collapsible } from '@/components/ui/collapsible'
+import { InlineVariantsSummary } from '@/components/VariantsChecker/InlineVariantsSummary'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -21,6 +22,9 @@ export function StepPipeline({ form }: Props) {
   const rosaceLocal = useWatch({ control, name: 'rosace_local' })
   const lilaceLocal = useWatch({ control, name: 'lilace_local' })
   const bgzip = useWatch({ control, name: 'bbtools_use_bgzip' })
+  const regenerateVariants = useWatch({ control, name: 'regenerate_variants' })
+  const oligoFile = useWatch({ control, name: 'oligo_file' })
+  const showVariantsSummary = Boolean(regenerateVariants && oligoFile)
 
   return (
     <div className="space-y-6">
@@ -92,6 +96,10 @@ export function StepPipeline({ form }: Props) {
           description="Do not filter called variants against the designed variants list. Useful for exploratory analysis."
         />
       </div>
+
+      {showVariantsSummary && (
+        <InlineVariantsSummary oligoFilePath={oligoFile} />
+      )}
 
       <Collapsible title="Advanced parameters">
         <div className="grid grid-cols-2 gap-4">
