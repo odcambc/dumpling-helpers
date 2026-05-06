@@ -65,16 +65,22 @@ interface ClaimedMutation {
 }
 
 /**
- * Parsed from indel IDs like `Gene_delete-N_L-P` / `Gene_ins-N_L-P`.
- * `claimedLength` is the raw number from the ID — naming conventions vary
- * (some libraries use codons, others nucleotides). The actual indel length
- * is always determined by sequence alignment and may differ from this value.
+ * Parsed from indel IDs like `Gene_delete-N_L-P` / `Gene_ins-N_SEQ-P`.
+ *
+ * For deletions: `claimedLength` is the raw number from the ID (unit ambiguous —
+ * could be nt or codons). The actual length is always determined by alignment.
+ *
+ * For insertions: `insertedSeq` contains the literal inserted bases from the ID
+ * when the naming convention encodes the sequence (e.g. `_GGC-2`). When only a
+ * number is given, `claimedLength` is set and `insertedSeq` is undefined.
  */
 interface ClaimedIndel {
   type: 'deletion' | 'insertion'
-  /** Raw length parsed from the ID — unit (nt vs codons) is convention-dependent */
+  /** Raw numeric length from the ID (deletions, or insertions named by count) */
   claimedLength: number
   pos: number
+  /** Literal inserted bases from the ID, when the naming convention uses a sequence */
+  insertedSeq?: string
 }
 
 /**
@@ -175,11 +181,20 @@ function parseClaimedMutation(id: string): ClaimedMutation | null {
 }
 
 function parseClaimedIndel(id: string): ClaimedIndel | null {
-  const match = id.match(/_(delete|del|ins|insert)-\d+_(\d+)-(\d+)$/i)
-  if (!match) return null
-  const keyword = match[1].toLowerCase()
-  const type = keyword === 'ins' || keyword === 'insert' ? 'insertion' : 'deletion'
-  return { type, claimedLength: parseInt(match[2], 10), pos: parseInt(match[3], 10) }
+  // Format 1 (deletions + numeric insertions): _delete-N_L-P or _ins-N_L-P
+  const numMatch = id.match(/_(delete|del|ins|insert)-\d+_(\d+)-(\d+)$/i)
+  if (numMatch) {
+    const type = /^(ins|insert)$/i.test(numMatch[1]) ? 'insertion' : 'deletion'
+    return { type, claimedLength: parseInt(numMatch[2], 10), pos: parseInt(numMatch[3], 10) }
+  }
+  // Format 2 (sequence-encoded insertions): _insert-N_ACGT...-P
+  // The inserted sequence itself is encoded in the ID, e.g. _insert-1_GGC-2
+  const seqMatch = id.match(/_(insert|ins)-\d+_([ACGTacgt]+)-(\d+)$/i)
+  if (seqMatch) {
+    const insertedSeq = seqMatch[2].toUpperCase()
+    return { type: 'insertion', claimedLength: insertedSeq.length, pos: parseInt(seqMatch[3], 10), insertedSeq }
+  }
+  return null
 }
 
 /**
@@ -509,26 +524,47 @@ function validateOligo(
       return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
     }
 
-    // For each candidate site, scan for the actual indel length
+    // For each candidate site, determine the actual indel length.
     let indelSiteInOligo = -1
     let actualLengthNt = -1
 
-    for (const site of candidateSites) {
-      if (actualLengthNt >= 0) break
-      if (indelType === 'deletion') {
-        for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
-          if (D + L + FLANK > cdsUpper.length) break
-          if (upper.slice(site, site + FLANK) === cdsUpper.slice(D + L, D + L + FLANK)) {
-            indelSiteInOligo = site; actualLengthNt = L
-          }
+    // Fast path for insertions where the sequence is encoded in the ID:
+    // we know exactly what to look for — no scanning needed.
+    if (indelType === 'insertion' && claimedIndel.insertedSeq) {
+      const knownSeq = claimedIndel.insertedSeq
+      const postFlank = D + FLANK <= cdsUpper.length ? cdsUpper.slice(D, D + FLANK) : null
+      for (const site of candidateSites) {
+        if (actualLengthNt >= 0) break
+        const L = knownSeq.length
+        if (site + L + FLANK > upper.length) continue
+        const seqMatches = upper.slice(site, site + L) === knownSeq
+        const flankMatches = postFlank ? upper.slice(site + L, site + L + FLANK) === postFlank : true
+        if (seqMatches && flankMatches) {
+          indelSiteInOligo = site; actualLengthNt = L
+        } else if (!seqMatches && flankMatches) {
+          // Post-flank matches but wrong bases — the insertion IS here but the sequence differs
+          warn(`Insertion at position ${pos}: expected ${knownSeq} from ID but found ${upper.slice(site, site + L)} in oligo`)
+          indelSiteInOligo = site; actualLengthNt = L
         }
-      } else {
-        if (D + FLANK > cdsUpper.length) break
-        const postFlank = cdsUpper.slice(D, D + FLANK)
-        for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
-          if (site + L + FLANK > upper.length) break
-          if (upper.slice(site + L, site + L + FLANK) === postFlank) {
-            indelSiteInOligo = site; actualLengthNt = L
+      }
+    } else {
+      for (const site of candidateSites) {
+        if (actualLengthNt >= 0) break
+        if (indelType === 'deletion') {
+          for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
+            if (D + L + FLANK > cdsUpper.length) break
+            if (upper.slice(site, site + FLANK) === cdsUpper.slice(D + L, D + L + FLANK)) {
+              indelSiteInOligo = site; actualLengthNt = L
+            }
+          }
+        } else {
+          if (D + FLANK > cdsUpper.length) break
+          const postFlank = cdsUpper.slice(D, D + FLANK)
+          for (let L = 3; L <= 30 && actualLengthNt < 0; L += 3) {
+            if (site + L + FLANK > upper.length) break
+            if (upper.slice(site + L, site + L + FLANK) === postFlank) {
+              indelSiteInOligo = site; actualLengthNt = L
+            }
           }
         }
       }
@@ -580,10 +616,14 @@ function validateOligo(
       return { id, claimed: null, claimedIndel, cdsAlignPos, changes: [], isFrameshift: false, problems, status }
     }
 
-    // Cross-check claimed vs actual (name may use codons or nucleotides)
-    const actualCodons = actualLengthNt / 3
-    if (claimedLength !== actualCodons && claimedLength !== actualLengthNt) {
-      warn(`Length mismatch: ID claims ${claimedLength} (likely codons), alignment found ${actualCodons} codon${actualCodons !== 1 ? 's' : ''} (${actualLengthNt} nt)`)
+    // Cross-check claimed vs actual.
+    // Skip for insertions where the sequence was encoded in the ID — we already
+    // verified (or warned about) the actual bases above.
+    if (!(indelType === 'insertion' && claimedIndel.insertedSeq)) {
+      const actualCodons = actualLengthNt / 3
+      if (claimedLength !== actualCodons && claimedLength !== actualLengthNt) {
+        warn(`Length mismatch: ID claims ${claimedLength} (likely codons), alignment found ${actualCodons} codon${actualCodons !== 1 ? 's' : ''} (${actualLengthNt} nt)`)
+      }
     }
 
     const refBases = indelType === 'deletion' ? cdsUpper.slice(D, D + actualLengthNt) : ''
@@ -1115,14 +1155,17 @@ function OligoRow({ result }: { result: OligoResult }) {
             </span>
           )}
           {result.claimedIndel && (() => {
-            const { type, pos, claimedLength } = result.claimedIndel
+            const { type, pos, claimedLength, insertedSeq } = result.claimedIndel
             const ch = result.changes[0]
             const actualNt = type === 'deletion' ? (ch?.refBases.length ?? 0) : (ch?.oligoBases.length ?? 0)
             let label: string
             if (result.isFrameshift && actualNt > 0) {
-              // Frameshift: show nucleotide count explicitly
               const sym = type === 'deletion' ? 'Δ' : '+'
               label = `${sym}${actualNt}nt@${pos}`
+            } else if (type === 'insertion' && insertedSeq) {
+              // Show abbreviated sequence for known insertions (max 6 chars shown)
+              const displaySeq = insertedSeq.length > 6 ? `${insertedSeq.slice(0, 6)}…` : insertedSeq
+              label = `+[${displaySeq}]@${pos}`
             } else {
               const n = actualNt > 0 ? Math.floor(actualNt / 3) : claimedLength
               label = type === 'deletion'
