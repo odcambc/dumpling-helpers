@@ -5,7 +5,7 @@ from app.models.config import ConfigPayload
 from app.models.experiments import ExperimentsPayload
 from app.services import validator
 
-router = APIRouter()
+router = APIRouter(prefix="/validate", tags=["validate"])
 
 
 class ValidationResponse(BaseModel):
@@ -13,13 +13,13 @@ class ValidationResponse(BaseModel):
     errors: list[dict]
 
 
-@router.post("/validate/config", response_model=ValidationResponse)
+@router.post("/config", response_model=ValidationResponse)
 def validate_config(payload: ConfigPayload) -> ValidationResponse:
     errors = validator.validate_config(payload.model_dump(exclude_none=True))
     return ValidationResponse(valid=len(errors) == 0, errors=errors)
 
 
-@router.post("/validate/experiments", response_model=ValidationResponse)
+@router.post("/experiments", response_model=ValidationResponse)
 def validate_experiments(payload: ExperimentsPayload) -> ValidationResponse:
     rows = [r.model_dump(exclude_none=True) for r in payload.rows]
     errors = validator.validate_experiments(rows)

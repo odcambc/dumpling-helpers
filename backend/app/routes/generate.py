@@ -4,10 +4,10 @@ from fastapi.responses import Response
 from app.models.experiments import GeneratePayload
 from app.services import generator, validator
 
-router = APIRouter()
+router = APIRouter(prefix="/generate", tags=["generate"])
 
 
-@router.post("/generate")
+@router.post("")
 def generate_files(payload: GeneratePayload) -> Response:
     config_errors = validator.validate_config(payload.config.model_dump(exclude_none=True))
     experiment_rows = [r.model_dump(exclude_none=True) for r in payload.experiments.rows]

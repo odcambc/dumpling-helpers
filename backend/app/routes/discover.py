@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(prefix="/discover", tags=["discover"])
 
 # R1 pattern from the pipeline's common.smk — strip this suffix to get the prefix.
 _R1_SUFFIX = re.compile(r"[._](?:R1|1)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE)
@@ -29,7 +29,7 @@ class DiscoverResponse(BaseModel):
     prefixes: list[str]
 
 
-@router.get("/discover", response_model=DiscoverResponse)
+@router.get("", response_model=DiscoverResponse)
 def discover_fastq(
     data_dir: str = Query(..., description="Absolute or relative path to FASTQ data directory"),
 ) -> DiscoverResponse:
