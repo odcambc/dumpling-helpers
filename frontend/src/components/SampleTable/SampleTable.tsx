@@ -7,6 +7,7 @@ import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { cn } from '@/lib/utils'
+import { CoverageEstimate } from './CoverageEstimate'
 
 interface Props {
   rows: SampleRowValues[]
@@ -318,6 +319,8 @@ export function SampleTable({
         <Plus size={14} />
         Add row
       </Button>
+
+      <CoverageEstimate rows={rows} />
     </div>
   )
 }
