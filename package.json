@@ -2,25 +2,33 @@
   "name": "dumpling-helpers",
   "private": true,
   "scripts": {
-    "dev":     "concurrently --names \"api,web\" --prefix-colors \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api": "cd backend && uv run uvicorn app.main:app --reload --port 8000",
-    "dev:web": "npm run --prefix frontend dev",
+    "dev":         "concurrently --names \"dh-api,dh-web,lq-api,lq-web\" --prefix-colors \"cyan,magenta,blue,green\" \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:lib-api\" \"npm run dev:lib-web\"",
+    "dev:api":     "cd backend && uv run uvicorn app.main:app --reload --port 8000",
+    "dev:web":     "npm run --prefix frontend dev",
+    "dev:lib-api": "cd library-qc/backend && uv run uvicorn app.main:app --reload --port 8001",
+    "dev:lib-web": "npm run --prefix library-qc/frontend dev",
 
-    "build":   "npm run --prefix frontend build",
+    "build":       "npm run --prefix frontend build && npm run --prefix library-qc/frontend build",
 
-    "check":        "npm run check:web && npm run check:api",
-    "check:web":    "npm run --prefix frontend typecheck",
-    "check:api":    "cd backend && uv run ruff check . && uv run ruff format --check .",
+    "check":           "npm run check:web && npm run check:lib-web && npm run check:api && npm run check:lib-api",
+    "check:web":       "npm run --prefix frontend typecheck",
+    "check:lib-web":   "npm run --prefix library-qc/frontend typecheck",
+    "check:api":       "cd backend && uv run ruff check . && uv run ruff format --check .",
+    "check:lib-api":   "cd library-qc/backend && uv run ruff check . && uv run ruff format --check .",
 
-    "lint":         "npm run lint:web && npm run lint:api",
-    "lint:web":     "npm run --prefix frontend lint",
-    "lint:api":     "cd backend && uv run ruff check . --fix",
+    "lint":            "npm run lint:web && npm run lint:lib-web && npm run lint:api && npm run lint:lib-api",
+    "lint:web":        "npm run --prefix frontend lint",
+    "lint:lib-web":    "npm run --prefix library-qc/frontend lint",
+    "lint:api":        "cd backend && uv run ruff check . --fix",
+    "lint:lib-api":    "cd library-qc/backend && uv run ruff check . --fix",
 
-    "format":       "npm run format:web && npm run format:api",
-    "format:web":   "npm run --prefix frontend lint:fix",
-    "format:api":   "cd backend && uv run ruff format .",
+    "format":          "npm run format:web && npm run format:lib-web && npm run format:api && npm run format:lib-api",
+    "format:web":      "npm run --prefix frontend lint:fix",
+    "format:lib-web":  "npm run --prefix library-qc/frontend lint:fix",
+    "format:api":      "cd backend && uv run ruff format .",
+    "format:lib-api":  "cd library-qc/backend && uv run ruff format .",
 
-    "install:all":  "npm install && npm install --prefix frontend && cd backend && uv sync"
+    "install:all": "npm install && npm install --prefix frontend && npm install --prefix library-qc/frontend && cd backend && uv sync && cd ../library-qc/backend && uv sync"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
