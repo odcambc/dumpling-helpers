@@ -1,7 +1,9 @@
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import capabilities, validate, generate, browse, discover
+
+from app.routes import browse, capabilities, discover, generate, health, validate
 
 LOCAL_MODE = os.getenv("DUMPLING_LOCAL", "false").lower() == "true"
 
@@ -20,6 +22,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health.router, prefix="/api")
 app.include_router(capabilities.router, prefix="/api")
 app.include_router(validate.router, prefix="/api")
 app.include_router(generate.router, prefix="/api")

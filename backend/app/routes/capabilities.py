@@ -1,9 +1,10 @@
 import os
 import shutil
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(prefix="/capabilities", tags=["capabilities"])
 
 
 class CapabilitiesResponse(BaseModel):
@@ -12,7 +13,7 @@ class CapabilitiesResponse(BaseModel):
     snakemake_available: bool
 
 
-@router.get("/capabilities", response_model=CapabilitiesResponse)
+@router.get("", response_model=CapabilitiesResponse)
 def get_capabilities() -> CapabilitiesResponse:
     local_mode = os.getenv("DUMPLING_LOCAL", "false").lower() == "true"
     return CapabilitiesResponse(

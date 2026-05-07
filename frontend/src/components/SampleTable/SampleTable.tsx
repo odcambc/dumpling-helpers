@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { Plus, Trash2, ClipboardPaste, ScanSearch, X } from 'lucide-react'
+import { Plus, Trash2, ClipboardPaste, ScanSearch, X, Upload, AlertTriangle } from 'lucide-react'
 import type { ExperimentMode, Capabilities } from '@/types'
 import type { SampleRowValues } from '@/schemas/experiments'
 import { makeEmptyRow, validateSampleTable } from '@/schemas/experiments'
@@ -7,6 +7,8 @@ import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Toggle } from '@/components/ui/toggle'
 import { cn } from '@/lib/utils'
+import { importExperimentsCsv } from '@/lib/importers'
+import { CoverageEstimate } from './CoverageEstimate'
 
 interface Props {
   rows: SampleRowValues[]
@@ -31,9 +33,13 @@ export function SampleTable({
 }: Props) {
   const errors = validateSampleTable(rows)
   const pasteRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [scanning, setScanning] = useState(false)
   const [discovered, setDiscovered] = useState<string[] | null>(null)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadWarnings, setUploadWarnings] = useState<string[]>([])
 
   async function handleScan() {
     setScanning(true)
@@ -94,6 +100,51 @@ export function SampleTable({
     [rows, onChange],
   )
 
+  const handleCsvUpload = useCallback(
+    async (file: File) => {
+      setUploadError(null)
+      setUploadWarnings([])
+      try {
+        const text = await file.text()
+        const imported = importExperimentsCsv(text)
+
+        // Detect "unsaved" rows worth warning about: any row where at least one
+        // user-meaningful field is filled in.
+        const hasContent = rows.some(
+          (r) => r.sample.trim() || r.condition.trim() || r.file.trim(),
+        )
+        if (hasContent) {
+          const ok = window.confirm(
+            `Replace ${rows.length} existing row${rows.length === 1 ? '' : 's'} with `
+              + `${imported.rows.length} from ${file.name}?`,
+          )
+          if (!ok) return
+        }
+
+        onChange(imported.rows)
+        onModeChange(imported.mode)
+        onIncludeTileChange(imported.includeTile)
+        setUploadWarnings(imported.warnings)
+      } catch (e) {
+        setUploadError(e instanceof Error ? e.message : 'CSV upload failed')
+      }
+    },
+    [rows, onChange, onModeChange, onIncludeTileChange],
+  )
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleCsvUpload(file)
+    e.target.value = ''
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleCsvUpload(file)
+  }
+
   const timeOrBinLabel = mode === 'timecourse' ? 'Time' : 'Bin'
 
   return (
@@ -131,6 +182,61 @@ export function SampleTable({
           label="Tiled amplicon sequencing"
         />
       </div>
+
+      {/* CSV upload / drop zone */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault()
+          setIsDragging(true)
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        className={cn(
+          'flex items-center justify-between gap-3 border-2 border-dashed rounded-md px-3 py-2.5 text-xs transition-colors',
+          isDragging
+            ? 'border-brand bg-brand-light text-brand-dark'
+            : 'border-gray-300 bg-white text-gray-500 hover:border-brand',
+        )}
+      >
+        <span>
+          Drop an <span className="font-mono text-gray-700">experiments.csv</span>{' '}
+          here to populate the table
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <Upload size={14} />
+          Upload CSV
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv"
+          className="sr-only"
+          onChange={handleFileChange}
+        />
+      </div>
+
+      {uploadError && (
+        <div className="flex items-start gap-2 bg-red-50 text-red-700 rounded-md p-2.5 text-xs">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          {uploadError}
+        </div>
+      )}
+
+      {uploadWarnings.length > 0 && (
+        <div className="flex items-start gap-2 bg-amber-50 text-amber-800 rounded-md p-2.5 text-xs">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <ul className="space-y-0.5">
+            {uploadWarnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Paste + scan hints */}
       <div className="flex flex-wrap items-center gap-4">
@@ -318,6 +424,8 @@ export function SampleTable({
         <Plus size={14} />
         Add row
       </Button>
+
+      <CoverageEstimate rows={rows} />
     </div>
   )
 }

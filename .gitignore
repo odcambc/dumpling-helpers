@@ -82,9 +82,13 @@ __pycache__/
 # Node / frontend build
 node_modules/
 frontend/dist/
+library-qc/frontend/dist/
 
 # Environment files
 .env
 .env.local
 .env*.local
+
+# Local example data (not for distribution)
+examples/
 

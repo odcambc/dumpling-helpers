@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Link } from 'react-router-dom'
 import { Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import { configSchema, configDefaults, type ConfigFormValues } from '@/schemas/config'
 import { makeEmptyRow, type SampleRowValues } from '@/schemas/experiments'
@@ -16,7 +17,6 @@ import { Preview } from '@/components/Preview/Preview'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
-import { VariantsChecker } from '@/components/VariantsChecker/VariantsChecker'
 import JSZip from 'jszip'
 import yaml from 'js-yaml'
 import Papa from 'papaparse'
@@ -36,7 +36,6 @@ export default function App() {
   const [includeTile, setIncludeTile] = useState(false)
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [runConfig, setRunConfig] = useState<RunConfig>({ env: 'local', local: { cores: 8 } })
-  const [variantsOpen, setVariantsOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
@@ -213,15 +212,15 @@ export default function App() {
             </div>
           )}
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full text-gray-500"
-            onClick={() => setVariantsOpen(true)}
+          <Link
+            to="/oligo-validator"
+            className={cn(
+              'w-full inline-flex items-center justify-center rounded-md text-sm font-medium',
+              'h-8 px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors',
+            )}
           >
-            Validate variants file
-          </Button>
+            Validate oligos
+          </Link>
 
           <Button
             type="button"
@@ -282,13 +281,19 @@ export default function App() {
             ← Back
           </Button>
           <span className="text-xs text-gray-400">Step {step} of {STEPS.length}</span>
-          <Button
-            type="button"
-            onClick={() => setStep((s) => Math.min(5, s + 1) as WizardStep)}
-            disabled={step === 5}
-          >
-            Next →
-          </Button>
+          {step < 5 ? (
+            <Button
+              type="button"
+              onClick={() => setStep((s) => Math.min(5, s + 1) as WizardStep)}
+            >
+              Next →
+            </Button>
+          ) : (
+            // Spacer to keep `justify-between` three-column layout balanced.
+            <div aria-hidden className="invisible">
+              <Button type="button" tabIndex={-1}>Next →</Button>
+            </div>
+          )}
         </div>
       </main>
 
@@ -301,7 +306,6 @@ export default function App() {
           <Preview config={config} rows={rows} mode={mode} includeTile={includeTile} />
         </div>
       </aside>
-      <VariantsChecker open={variantsOpen} onClose={() => setVariantsOpen(false)} />
     </div>
   )
 }

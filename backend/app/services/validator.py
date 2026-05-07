@@ -4,11 +4,12 @@ Schema validation for config and experiments payloads.
 We load the pipeline's own JSON schemas (bundled at deploy time) and run them
 through jsonschema, producing structured error lists rather than raw exceptions.
 """
+
 from __future__ import annotations
-import json
+
 from pathlib import Path
+
 import yaml
-import jsonschema
 from jsonschema import Draft202012Validator
 
 SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
