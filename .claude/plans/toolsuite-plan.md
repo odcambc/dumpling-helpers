@@ -15,9 +15,9 @@ DIMPLE (~/Projects/DIMPLE)
 
       ↓  pre-synthesis QC
 
-Library Design QC tool  [NEW — Phase 3]
-  Web app: oligo validation, library composition view, long-read QC (future).
-  Absorbs OligoValidator from dumpling-helpers.
+dumpling-helpers/library-qc/  ← monorepo subdirectory  [Phase 3]
+  Web app: oligo validation, library composition view, sequencing planner.
+  Served on :8001 (backend) / Vite next port (frontend) in dev.
 
       ↓  post-synthesis QC
 
@@ -30,19 +30,42 @@ dimple-qc-app (~/Projects/dimple-qc-app)
 dumpling (~/Projects/dumpling)
   Snakemake pipeline for DMS analysis.
 
-dumpling-helpers (~/Projects/dumpling-helpers)  ← primary repo
+dumpling-helpers (~/Projects/dumpling-helpers)  ← primary repo / monorepo root
   React/FastAPI config wizard for dumpling.
-  Currently also hosts OligoValidator + VariantsChecker (to be rationalised).
+  Also hosts OligoValidator (/oligo-validator route).
+  Served on :8000 (backend) / :5173 (frontend) in dev.
+  library-qc/ lives here as a monorepo subdirectory (not a separate repo).
 ```
+
+## Repository structure
+
+```
+dumpling-helpers/
+  frontend/            — wizard React app (Vite, :5173)
+  backend/             — wizard FastAPI app (uv, :8000)
+  library-qc/
+    frontend/          — library-qc React app (Vite, next port)
+    backend/           — library-qc FastAPI app (uv, :8001)
+  .devcontainer/       — single devcontainer covering both apps
+  docs/
+    file-contracts.md  — authoritative CSV/YAML format reference
+  package.json         — root scripts: dev/check/lint/format for both apps
+```
+
+Root scripts:
+- `npm run dev`          — all four processes (dh-api, dh-web, lq-api, lq-web)
+- `npm run check`        — tsc + ruff across both apps
+- `npm run install:all`  — npm + uv for both apps
 
 ## Shared file contracts
 
 These CSV/YAML formats are the integration points between tools.
 No tool imports another directly — integration is file-based.
+Full spec: `docs/file-contracts.md`
 
 | File | Producer | Consumers | Key columns |
 |---|---|---|---|
-| `designed_variants.csv` | DIMPLE | dumpling, Lib-QC tool | `name`, `pos`, `mutation_type`, `codon`, `mutation`, `hgvs` |
+| `designed_variants.csv` | DIMPLE | dumpling, library-qc | `name`, `pos`, `mutation_type`, `codon`, `mutation`, `hgvs` |
 | `oligo CSV` | DIMPLE / manual | OligoValidator | `id,sequence` (no header) |
 | `experiments.csv` | dumpling-helpers | dumpling | `sample`, `condition`, `replicate`, `time`/`bin`, `file` |
 | `config.yaml` | dumpling-helpers | dumpling | per dumpling schema |
@@ -61,6 +84,9 @@ An orchestrator agent should:
 
 Tasks within a phase that share no dependencies can run in parallel.
 
+**Working directory for all tasks:** `/Users/bartleby/Projects/dumpling-helpers`
+**library-qc lives at:** `library-qc/` inside the monorepo (not a separate repo).
+
 ### Status values
 - `TODO` — not started
 - `IN_PROGRESS` — subagent running
@@ -69,362 +95,228 @@ Tasks within a phase that share no dependencies can run in parallel.
 
 ---
 
-## Phase 1 — Rationalise dumpling-helpers
+## Pending
 
-All work in `~/Projects/dumpling-helpers`. No new repos. Tasks P1.1 and P1.2
-are independent and can run in parallel. P1.3 and P1.4 can also run in parallel.
-P1.4 depends on no other task but reads the variants schema from P1.2 context.
+### Merge integration branch → main
 
-### P1.1 — VariantsChecker inline in Step 3  `TODO`
-
-**Depends on:** nothing
-
-**Subagent brief:**
-
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `feat/variants-inline` (create from main)
-
-The VariantsChecker is currently a slide-over drawer triggered by a sidebar button
-in `frontend/src/App.tsx`. Move it inline into Step 3 (Pipeline options) so it
-activates automatically when `regenerate_variants` is on and `oligo_file` is
-non-empty. Remove the sidebar button and the drawer.
-
-Files to read first:
-- `frontend/src/App.tsx`
-- `frontend/src/components/wizard/StepPipeline.tsx`
-- `frontend/src/components/VariantsChecker/VariantsChecker.tsx`
-
-Changes required:
-1. In `StepPipeline.tsx`: import the validation logic (not the drawer component)
-   from `VariantsChecker`. When `form.watch('regenerate_variants')` is true and
-   `form.watch('oligo_file')` is non-empty, render a compact inline summary:
-   total variants, mutation_type breakdown, any flagged rows. Use the existing
-   parse + check logic; just change the presentation from drawer to inline panel.
-2. In `App.tsx`: remove `variantsOpen` state, the sidebar "Validate variants file"
-   button, and the `<VariantsChecker>` render at the bottom.
-3. The `VariantsChecker.tsx` component can be split: keep the pure validation logic
-   as `validateVariants(csvText)` exported from a new `lib/validateVariants.ts`,
-   and delete the drawer UI or repurpose it as a simple panel component.
-
-Acceptance criteria:
-- No sidebar "Validate variants" button visible.
-- On Step 3, when `regenerate_variants` is checked and `oligo_file` has a value,
-  a validation summary appears (even if the file can't be read — show a prompt to
-  upload the file client-side for validation).
-- `npx tsc --noEmit` passes.
-- Existing behaviour for steps 1, 2, 4, 5 is unchanged.
+`integration/phase-1-2` is complete and passes `npm run check`. Merge to `main`
+when ready. All Phase 1 and Phase 2 work lives on this branch.
 
 ---
 
-### P1.2 — OligoValidator as a dedicated route  `TODO`
+## Phase 1 — Rationalise dumpling-helpers  `DONE`
 
-**Depends on:** nothing
+All merged into `integration/phase-1-2`. Passes `npm run check` clean.
 
-**Subagent brief:**
+### P1.1 — VariantsChecker inline in Step 3  `DONE`
 
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `feat/oligo-validator-page` (create from `feat/oligo-validator`)
+VariantsChecker moved inline into Step 3. Drawer and sidebar button removed.
+Split into `lib/validateVariants.ts` (pure logic) +
+`components/VariantsChecker/InlineVariantsSummary.tsx` (panel UI).
 
-The OligoValidator is currently a slide-over drawer (`open/onClose` props) launched
-from a sidebar button in `App.tsx`. Convert it to a standalone page at `/oligo-validator`
-using React Router (already installed — check `package.json`; add it if absent).
+### P1.2 — OligoValidator as a dedicated route  `DONE`
 
-Files to read first:
-- `frontend/src/App.tsx`
-- `frontend/src/components/OligoValidator/OligoValidator.tsx`
-- `frontend/src/main.tsx` (or wherever the React root is mounted)
-- `frontend/package.json`
+React Router added. `/oligo-validator` is a full page (`pages/OligoValidatorPage.tsx`)
+with a back link to `/`. Drawer chrome removed from `OligoValidator.tsx`.
 
-Changes required:
-1. Add React Router. Wrap the app in `<BrowserRouter>`. Define two routes:
-   - `/` → existing wizard layout (current `App` content)
-   - `/oligo-validator` → `<OligoValidatorPage />`
-2. Create `frontend/src/pages/OligoValidatorPage.tsx` — a full-page layout that
-   renders the OligoValidator content directly (no drawer, no overlay). Give it
-   a back link to `/`.
-3. Strip the `open`/`onClose` props from `OligoValidator.tsx`; it should render
-   its content unconditionally. The drawer chrome (fixed positioning, translate-x
-   animation, backdrop) should be removed.
-4. In `App.tsx`: replace the sidebar "Validate oligos" button with a `<Link>`
-   to `/oligo-validator` that opens in the same tab.
-5. Update the FastAPI backend's static file serving if needed so the `/oligo-validator`
-   route falls back to `index.html` (standard SPA catch-all).
+### P1.3 — Design token extraction  `DONE`
 
-Acceptance criteria:
-- Navigating to `/oligo-validator` renders the full validator UI, not a drawer.
-- The main wizard at `/` still works completely.
-- `npx tsc --noEmit` passes.
-- The back-navigation link returns to `/`.
+`frontend/src/lib/tokens.ts` exports `colors` (OKLCH brand palette) and `typography`
+stacks, mirroring the Tailwind v4 `@theme` block in `index.css`.
+
+### P1.4 — Sequencing coverage estimator  `DONE`
+
+`frontend/src/lib/coverageEstimate.ts` + collapsible panel in Step 4 (Sample table).
+Derives conditions/replicates/timepoints from live row data; warns above 50 Gbp.
 
 ---
 
-### P1.3 — Design token extraction  `TODO`
+## Phase 2 — Suite foundation  `DONE`
 
-**Depends on:** nothing (can run parallel to P1.1 and P1.2)
+All merged into `integration/phase-1-2`.
 
-**Subagent brief:**
+### P2.1 — Document shared file contracts  `DONE`
 
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `feat/design-tokens` (create from main)
+`docs/file-contracts.md` — full spec for config.yaml, experiments.csv, oligo CSV,
+designed_variants.csv. Includes required/optional columns and 3-row examples.
 
-Extract the visual design constants into a single authoritative source so a future
-second app can import or copy them as a starting point.
+### P2.2 — Backend router modularisation  `DONE`
 
-Files to read first:
-- `frontend/tailwind.config.js` (or `.ts`)
-- `frontend/src/index.css` (or global styles)
-- Any file that defines `brand`, `brand-light`, `brand-dark` colours
-
-Changes required:
-1. Create `frontend/src/lib/tokens.ts` that exports:
-   ```ts
-   export const colors = {
-     brand:      '#...',   // pull from tailwind config
-     brandLight: '#...',
-     brandDark:  '#...',
-   } as const
-
-   export const typography = {
-     fontMono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-     fontSans: 'Inter, system-ui, sans-serif',
-   } as const
-   ```
-2. The Tailwind config should continue to work as-is (no change to class names).
-   `tokens.ts` is purely a reference export for code that needs the raw values
-   (e.g. inline styles in the OligoValidator grid, chart colours in future tools).
-3. Update the OligoValidator's hardcoded hex colours (STATUS_BG, STATUS_BORDER,
-   AA_COLOR, AA_BG) to import brand colours from `tokens.ts` where they overlap.
-
-Acceptance criteria:
-- `tokens.ts` exists and exports `colors` and `typography`.
-- `npx tsc --noEmit` passes.
-- Visual appearance is unchanged.
+`backend/app/main.py` is now wiring-only. All routes in `routes/` files with
+per-domain APIRouter prefixes. `GET /api/health` added (`routes/health.py`).
 
 ---
 
-### P1.4 — Sequencing coverage estimator  `TODO`
+## Phase 3 — Library QC tool
 
-**Depends on:** nothing (can run parallel to P1.1–P1.3)
+All work in `library-qc/` inside the monorepo.
+P3.1 is done (scaffold). P3.2 and P3.3 can run in parallel.
 
-**Subagent brief:**
+### P3.1 — Scaffold Library QC app  `DONE`
 
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `feat/coverage-estimator` (create from main)
-
-Add a sequencing coverage estimator panel to Step 4 (Sample table). Given the
-library size and experiment structure, estimate minimum reads per sample needed to
-achieve a target per-variant coverage depth.
-
-Files to read first:
-- `frontend/src/components/SampleTable/SampleTable.tsx`
-- `frontend/src/App.tsx` (how `rows`, `mode`, `includeTile` are passed)
-- `frontend/src/schemas/experiments.ts`
-
-The estimator logic (implement in `frontend/src/lib/coverageEstimate.ts`):
-
-```
-Inputs:
-  variantCount    number   total variants in library (user-entered or read from file)
-  conditions      number   unique conditions in sample table
-  replicates      number   unique replicates per condition
-  timepoints      number   unique timepoints (timecourse) or bins (sort)
-  targetCoverage  number   desired reads per variant per sample (default: 500)
-
-Output:
-  readsPerSample  number   = variantCount × targetCoverage
-  totalReads      number   = readsPerSample × (conditions × replicates × timepoints)
-  gigabases       number   = totalReads × readLength / 1e9  (assume readLength=150)
-```
-
-UI changes to `SampleTable.tsx`:
-1. Add a small collapsible "Coverage estimate" section below the sample table.
-2. Inputs: variant count (number field, manual entry; note: will auto-populate
-   from designed_variants.csv in a future task), target coverage depth (default 500),
-   read length (default 150 bp).
-3. Derive conditions/replicates/timepoints from the existing `rows` prop.
-4. Display: reads/sample, total reads, and Gbp as `SummaryStat`-style cards.
-5. Add a warning if total reads > 50 Gbp (likely needs multiple lanes).
-
-Acceptance criteria:
-- Panel appears in Step 4 below the sample table.
-- Numbers update live as the sample table rows change.
-- `npx tsc --noEmit` passes.
-
----
-
-## Phase 2 — Suite foundation
-
-Primarily documentation and backend modularisation. No new repos.
-Can begin once Phase 1 tasks are merged.
-
-### P2.1 — Document shared file contracts  `TODO`
-
-**Depends on:** P1.1 (VariantsChecker inline gives us a clean spec for designed_variants.csv)
-
-**Subagent brief:**
-
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `docs/file-contracts`
-
-Create `docs/file-contracts.md` documenting the CSV/YAML formats that connect the
-toolsuite. Read the following files to derive the specs:
-- `frontend/src/schemas/config.ts` — config.yaml schema
-- `frontend/src/schemas/experiments.ts` — experiments.csv schema
-- `frontend/src/components/OligoValidator/OligoValidator.tsx` — oligo CSV + designed_variants.csv columns validated
-
-Document each format with: purpose, producer, consumers, required columns with types,
-optional columns, and a 3-row example. This file becomes the reference for anyone
-building a new tool that reads or writes these formats.
-
----
-
-### P2.2 — Backend router modularisation  `TODO`
-
-**Depends on:** nothing in Phase 2
-
-**Subagent brief:**
-
-Working repo: `/Users/bartleby/Projects/dumpling-helpers`
-Branch: `refactor/backend-routers`
-
-Read `backend/app/main.py` and all files in `backend/app/routes/`. The goal is to
-ensure each logical domain has its own APIRouter with a clear prefix, so that a
-future second FastAPI app can import individual routers rather than the whole app.
-
-Specifically:
-1. Confirm each route file uses `router = APIRouter(prefix="...", tags=["..."])`.
-2. `main.py` should do nothing but create the FastAPI app, register routers, and
-   mount static files. No route handlers inline.
-3. If any route logic lives directly in `main.py`, extract it.
-4. Add a `GET /api/health` route that returns `{"status": "ok", "version": "..."}`.
-   Read the version from `pyproject.toml`.
-
-Acceptance criteria:
-- All routes are in `routes/` files, none inline in `main.py`.
-- The app starts and all existing routes respond correctly.
-- `GET /api/health` returns 200 with `{"status": "ok"}`.
-
----
-
-## Phase 3 — Library Design QC tool  (new standalone app)
-
-New repo or monorepo package. Scaffold once Phase 2 is complete.
-The OligoValidator logic transplanted from dumpling-helpers is the seed.
-
-### P3.1 — Scaffold Library QC app  `TODO`
-
-**Depends on:** P1.2 (OligoValidator page — proves the component works standalone), P2.2
-
-**Subagent brief:**
-
-Create a new Vite + React + TypeScript app at `~/Projects/library-qc` using the same
-stack as dumpling-helpers. Copy the tooling config (Tailwind, path aliases, ESLint,
-`tsconfig.json`) from `~/Projects/dumpling-helpers/frontend` as a starting point.
-
-Structure:
-```
-library-qc/
-  frontend/   — React app (Vite)
-  backend/    — FastAPI app (uv, Python 3.13)
-  .devcontainer/  — copy + adapt from dumpling-helpers
-  pyproject.toml
-  package.json (root, for scripts)
-```
-
-The backend should have the same health endpoint structure as dumpling-helpers after P2.2.
-The frontend should have a placeholder home page that lists the planned tools
-(Oligo Validator, Library Composition, Long-read QC) with "coming soon" states.
-No actual tool logic yet — this task is scaffolding only.
-
-Acceptance criteria:
-- `cd library-qc && npm run dev` starts the Vite dev server.
-- `cd library-qc/backend && uv run uvicorn app.main:app` starts the API.
-- `GET /api/health` returns 200.
-- `npx tsc --noEmit` passes.
+`library-qc/` exists in the monorepo with Vite + React + TS frontend,
+FastAPI + uv backend, placeholder home page, and `GET /api/health`.
+Standalone `.devcontainer` removed — monorepo `.devcontainer` covers both apps.
 
 ---
 
 ### P3.2 — Transplant OligoValidator  `TODO`
 
-**Depends on:** P3.1, P1.2
+**Depends on:** P3.1 `DONE`, P1.2 `DONE`
 
 **Subagent brief:**
 
-Working repo: `~/Projects/library-qc`
+Working repo: `/Users/bartleby/Projects/dumpling-helpers`
+Working dir for library-qc: `library-qc/` (monorepo subdirectory, NOT a separate repo)
 
-Copy `OligoValidator.tsx` from `~/Projects/dumpling-helpers/frontend/src/components/OligoValidator/`
-into `~/Projects/library-qc/frontend/src/pages/OligoValidatorPage.tsx`.
-Adapt it to render as a full page (the page variant created in P1.2 is the model).
-Copy any shared utilities it depends on (`lib/utils.ts`, `lib/tokens.ts` from P1.3).
+The OligoValidator is a full-page component in the wizard app at
+`frontend/src/components/OligoValidator/OligoValidator.tsx`. It is already
+rendered as a standalone page at `/oligo-validator` in the wizard
+(`frontend/src/pages/OligoValidatorPage.tsx` — read this for the page wrapper pattern).
+
+Task: wire the same component into the library-qc app so it is the primary
+tool at its `/oligo-validator` route.
+
+Files to read first:
+- `frontend/src/components/OligoValidator/OligoValidator.tsx`
+- `frontend/src/pages/OligoValidatorPage.tsx`
+- `frontend/src/lib/tokens.ts`
+- `frontend/src/lib/utils.ts`
+- `library-qc/frontend/src/App.tsx`
+- `library-qc/frontend/src/main.tsx`
+- `library-qc/frontend/package.json`
+
+Changes required:
+1. Copy `frontend/src/components/OligoValidator/OligoValidator.tsx` →
+   `library-qc/frontend/src/components/OligoValidator/OligoValidator.tsx`.
+2. Copy `frontend/src/lib/tokens.ts` and `frontend/src/lib/utils.ts` →
+   `library-qc/frontend/src/lib/` (same filenames). These are the only
+   dependencies OligoValidator has outside its own file.
+3. Add React Router to `library-qc/frontend/package.json` if not already present
+   (check first — it may already be installed).
+4. Create `library-qc/frontend/src/pages/OligoValidatorPage.tsx` mirroring the
+   pattern in `frontend/src/pages/OligoValidatorPage.tsx` but with the back link
+   pointing to `/` in library-qc.
+5. Wire routes in `library-qc/frontend/src/main.tsx`:
+   - `/` → existing App (placeholder home)
+   - `/oligo-validator` → OligoValidatorPage
+6. Update the placeholder home page in `library-qc/frontend/src/App.tsx` to
+   include a link/card to `/oligo-validator` (replace the "coming soon" state
+   with an active link).
+7. Check that `library-qc/frontend` has the same Tailwind / CSS setup as
+   `frontend/` — OligoValidator uses brand colour classes. Copy/adapt
+   `frontend/src/index.css` if needed.
 
 Acceptance criteria:
-- `/oligo-validator` in library-qc renders the full validator UI.
-- `npx tsc --noEmit` passes in library-qc.
-- The original in dumpling-helpers is unchanged.
+- `cd /Users/bartleby/Projects/dumpling-helpers && npm run dev:lib-web` starts Vite.
+- Navigating to `/oligo-validator` renders the full validator UI.
+- `npm run check:lib-web` (tsc --noEmit) passes.
+- The original in `frontend/` is unchanged.
 
 ---
 
 ### P3.3 — Library composition panel  `TODO`
 
-**Depends on:** P3.1
+**Depends on:** P3.1 `DONE`
 
 **Subagent brief:**
 
-Working repo: `~/Projects/library-qc`
+Working repo: `/Users/bartleby/Projects/dumpling-helpers`
+Working dir for library-qc: `library-qc/` (monorepo subdirectory)
 
-Add a `/library-composition` page. Input: drag-and-drop `designed_variants.csv`.
-Display:
+Add a `/library-composition` page to the library-qc app. Input: drag-and-drop
+or file-picker for `designed_variants.csv`. Parse with PapaParse (add to
+`library-qc/frontend/package.json` if absent).
+
+Read the column spec from `docs/file-contracts.md` in the repo root before
+implementing — it documents required/optional columns for designed_variants.csv.
+
+Display (all CSS-only, no charting library):
 - Total variant count
-- Breakdown by `mutation_type` (M/S/D/I/X) as a horizontal bar chart (CSS widths, no charting library)
-- Per-position coverage: how many amino acid substitutions are designed at each position
-  (should be ~20 for a complete DMS library; flag positions with fewer than 15)
-- Missing substitutions: which amino acids are absent at which positions
-- Frameshift flag: count of indels that are not multiples of 3
+- Breakdown by `mutation_type` (M/S/D/I/X) as a horizontal bar chart
+  (CSS `width` percentages)
+- Per-position coverage: count of unique amino acid substitutions per position
+  (flag positions with fewer than 15 — a complete DMS library has ~20)
+- Missing substitutions: list which amino acids are absent at flagged positions
+- Frameshift count: indels where `length` is not a multiple of 3
 
-Read the column spec from `~/Projects/dumpling-helpers/docs/file-contracts.md` (created in P2.1).
+Files to read first:
+- `docs/file-contracts.md` (designed_variants.csv spec)
+- `library-qc/frontend/src/App.tsx` (existing home page to add nav link)
+- `library-qc/frontend/src/main.tsx` (routes)
+- `library-qc/frontend/package.json`
+
+New files:
+- `library-qc/frontend/src/pages/LibraryCompositionPage.tsx`
+- `library-qc/frontend/src/lib/parseVariants.ts` — pure parsing/analysis logic,
+  no React, fully testable
+
+Add `/library-composition` to the router in `main.tsx` and a nav link on the
+home page.
 
 Acceptance criteria:
-- Uploading the example variants file from `~/Projects/dumpling-helpers/examples/`
-  shows a correct breakdown.
+- Page renders with file input.
+- Uploading a valid designed_variants.csv shows correct counts (verify manually
+  against a known file).
 - Positions with < 15 substitutions are highlighted.
-- `npx tsc --noEmit` passes.
+- `npm run check:lib-web` passes.
 
 ---
 
-## Phase 4 — Sequencing planning (cross-tool bridge)
+## Phase 4 — Sequencing planning
 
 ### P4.1 — Sequencing planner in library-qc  `TODO`
 
-**Depends on:** P3.3 (library composition panel gives us variant count), P1.4 (estimator logic already written)
+**Depends on:** P3.3 `TODO`, P1.4 `DONE`
 
 **Subagent brief:**
 
-Working repo: `~/Projects/library-qc`
+Working repo: `/Users/bartleby/Projects/dumpling-helpers`
+Working dir for library-qc: `library-qc/` (monorepo subdirectory)
 
-Add a `/sequencing-plan` page. It should import and reuse the `coverageEstimate`
-function from the dumpling-helpers implementation (copy `lib/coverageEstimate.ts`
-from `~/Projects/dumpling-helpers/frontend/src/lib/`).
+The coverage estimator logic already exists at
+`frontend/src/lib/coverageEstimate.ts`. Copy it to
+`library-qc/frontend/src/lib/coverageEstimate.ts` and build a `/sequencing-plan`
+page on top of it.
 
-Extend the estimator with multiplexing:
-- Input: number of samples (from experiment design, manually entered for now),
-  reads per flow cell (user selects: MiSeq 25M, NextSeq 400M, NovaSeq 6000 1.6B,
-  custom), cost per flow cell (optional, for budget estimate).
-- Output: flow cells needed, samples per flow cell, cost estimate if price entered.
-- Warn if reads-per-sample drops below 200× target coverage when multiplexed.
+Extend the estimator with multiplexing inputs:
+- Number of samples (manually entered for now)
+- Reads per flow cell: user selects from preset list
+  (MiSeq 25M, NextSeq 400M, NovaSeq 6000 1.6B, custom)
+- Cost per flow cell (optional — enables budget estimate output)
+
+Additional outputs beyond the base estimator:
+- Flow cells needed (ceil of totalReads / readsPerFlowCell)
+- Samples per flow cell (floor of readsPerFlowCell / readsPerSample)
+- Estimated cost (if cost entered)
+- Warning if reads-per-sample drops below 200× target coverage when multiplexed
+
+Files to read first:
+- `frontend/src/lib/coverageEstimate.ts` (copy this to library-qc)
+- `library-qc/frontend/src/main.tsx` (routes)
+- `library-qc/frontend/src/App.tsx` (home page nav)
+
+New files:
+- `library-qc/frontend/src/lib/coverageEstimate.ts` (copy from wizard app)
+- `library-qc/frontend/src/lib/sequencingPlan.ts` — multiplexing extension
+- `library-qc/frontend/src/pages/SequencingPlanPage.tsx`
+
+Add `/sequencing-plan` to the router and a nav link on the home page.
 
 Acceptance criteria:
-- Page renders with all inputs and outputs.
-- Numbers match manual calculation for a known test case.
-- `npx tsc --noEmit` passes.
+- Page renders with all inputs and derived outputs.
+- Numbers match manual calculation: 500 variants × 500× coverage × 10 samples
+  = 2.5 B reads total; on NextSeq 400M = 7 flow cells.
+- `npm run check:lib-web` passes.
 
 ---
 
 ## Notes for orchestrator
 
-- Each task's **Subagent brief** is designed to be passed verbatim to a subagent.
-  The subagent should not need to read this full file.
-- Update task status in-place as work proceeds.
-- After each Phase 1 task completes, open a PR against `main` in dumpling-helpers.
-- Phase 3 tasks create a new repo — the orchestrator should initialise git there.
-- Parallelism available: P1.1 + P1.2 + P1.3 + P1.4 can all run simultaneously.
-  P3.2 + P3.3 can run in parallel once P3.1 is done.
+- Each task's **Subagent brief** is self-contained — pass it verbatim.
+- `library-qc/` is a subdirectory of the dumpling-helpers monorepo, not a
+  separate git repo. All subagents work in `/Users/bartleby/Projects/dumpling-helpers`.
+- Run `npm run check` from the repo root to validate all four codebases at once.
+- P3.2 and P3.3 can run in parallel (both depend only on P3.1, which is done).
+- P4.1 waits on P3.3 (needs the library composition page for nav coherence).
+- Merge `integration/phase-1-2` → `main` before starting Phase 3 work.
