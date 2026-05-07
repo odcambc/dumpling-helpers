@@ -311,6 +311,153 @@ Acceptance criteria:
 
 ---
 
+## Phase 5 — Sequence-based oligo validation
+
+Replaces the ID-claim-only validation in the OligoValidator with direct
+sequence comparison against the CDS. Lives in `library-qc/`. The wizard app
+keeps a lightweight "valid oligo CSV format?" check only.
+
+**Context on real failure modes this must catch:**
+- Deletions mis-classified as frameshifts due to codon vs. nucleotide numbering
+  confusion in the current ID-parsing path.
+- Synthesis failures: oligo is WT sequence — no change at all — currently
+  indistinguishable from alignment failure.
+- Wrong variant: designed T5A, synthesised T5V — passes ID-based check because
+  flanking sequence still matches.
+
+**Type IIS cloning enzymes in use:** BsaI (`GGTCTC`/`GAGACC`) and BsmBI
+(`CGTCTC`/`GAGACG`). Oligos that introduce a new recognition site can be cut
+during Golden Gate assembly.
+
+---
+
+### P5.1 — Sequence-based variant detection  `TODO`
+
+**Depends on:** P3.2 `DONE` (OligoValidator already in library-qc)
+
+**Subagent brief:**
+
+Working repo: `/Users/bartleby/Projects/dumpling-helpers`
+File to rewrite: `library-qc/frontend/src/components/OligoValidator/OligoValidator.tsx`
+Reference implementation: `frontend/src/components/OligoValidator/OligoValidator.tsx`
+
+The current OligoValidator parses the oligo ID to extract a claimed variant,
+then verifies that claim against the CDS. This misses synthesis failures (WT
+oligos), wrong variants, and mis-classifies deletions due to codon vs.
+nucleotide numbering.
+
+Replace the claim-verification approach with direct sequence-based detection:
+
+**Algorithm (implement in `library-qc/frontend/src/lib/oligoAlignment.ts`):**
+
+```
+validateOligo(oligo: { id: string, sequence: string }, cds: string):
+  1. K-mer vote (keep existing logic) → candidate CDS window position
+  2. Strip 5'/3' adapters → bare oligo sequence B
+  3. Banded pairwise alignment of B vs. CDS[window ± padding]
+     - Use affine gap penalty: gap open > gap extend
+     - Band width 12 nt is sufficient given k-mer vote accuracy
+     - Implement as a standalone alignSequences(query, ref, opts) function
+  4. Walk alignment columns → collect RawDiff[]:
+     { type: 'sub'|'del'|'ins', cdsPos: number, refNt: string, altNt: string|string[] }
+     Track reading frame (cdsOffset % 3) through gaps
+  5. Classify each diff:
+     - sub: translate ref codon vs alt codon → 'synonymous'|'missense'|'nonsense'
+     - del: length % 3 === 0 → in-frame (report as N/3 codons); else frameshift (report as N nt)
+     - ins: same rule as del
+  6. If zero diffs → status: 'no_change' (synthesis failure candidate)
+  7. Parse ID claim via existing parseClaimedIndel / substitution parser (best-effort)
+  8. Compare detected vs. claimed:
+     - Both match → status: 'pass'
+     - Detected but no parseable claim → status: 'pass_unclaimed'
+     - Mismatch → status: 'warn_mismatch' (show both detected and claimed)
+     - No change detected → status: 'warn_no_change'
+     - Alignment failed → status: 'fail_alignment'
+```
+
+**Output statuses to display in the UI (replace existing pass/fail/warn):**
+- `pass` — detected variant matches claim ✓
+- `pass_unclaimed` — variant detected, no ID claim to compare
+- `warn_mismatch` — detected differs from claimed (flag prominently)
+- `warn_no_change` — no sequence change vs. CDS (likely synthesis failure)
+- `fail_alignment` — cannot place oligo reliably in CDS
+
+**Deletion reporting:** always primary in nucleotides, secondary in codons.
+E.g. "3 nt deleted (1 codon, in-frame)" or "1 nt deleted (frameshift)".
+Never report codon count only.
+
+**Files to create:**
+- `library-qc/frontend/src/lib/oligoAlignment.ts` — pure alignment + diff
+  logic; no React. Exports: `alignSequences`, `detectVariant`, `classifyDiffs`.
+
+**Files to modify:**
+- `library-qc/frontend/src/components/OligoValidator/OligoValidator.tsx` —
+  replace claim-verification with `detectVariant`; update status display to
+  reflect new statuses; update `OligoRow` and `OligoGrid` to use detected
+  variant (not claimed) as primary.
+
+**Do not modify** `frontend/src/components/OligoValidator/OligoValidator.tsx`
+(the wizard app copy) — that is a separate, simpler validator.
+
+Acceptance criteria:
+- A WT oligo (identical to CDS at that position) is flagged `warn_no_change`.
+- A 3-nt deletion is reported as "3 nt deleted (1 codon, in-frame)" not frameshift.
+- A 1-nt deletion is reported as "1 nt deleted (frameshift)".
+- A substitution where detected AA ≠ claimed AA shows `warn_mismatch`.
+- `npm run check:lib-web` passes.
+
+---
+
+### P5.2 — Type IIS site scanner  `TODO`
+
+**Depends on:** P5.1 `DONE`
+
+**Subagent brief:**
+
+Working repo: `/Users/bartleby/Projects/dumpling-helpers`
+
+After sequence-based detection is in place (P5.1), add a post-validation scan
+for Type IIS restriction enzyme recognition sites introduced by the oligo.
+
+**Enzymes in use for Golden Gate cloning:**
+| Enzyme | Forward      | Reverse complement |
+|--------|-------------|-------------------|
+| BsaI   | `GGTCTC`    | `GAGACC`          |
+| BsmBI  | `CGTCTC`    | `GAGACG`          |
+
+Both cut outside their recognition sequence, so a new site in an oligo can
+cause unintended cuts during library cloning.
+
+**Logic (add to `library-qc/frontend/src/lib/oligoAlignment.ts`):**
+
+```typescript
+export interface TypeIISSite {
+  enzyme: 'BsaI' | 'BsmBI'
+  strand: '+' | '-'
+  position: number        // 0-based position in bare oligo sequence
+  sequence: string        // the 6-nt recognition sequence found
+  inCds: boolean          // true if this site also exists at this position in the reference CDS
+}
+
+export function scanTypeIISites(bareOligo: string, cdsWindow: string): TypeIISSite[]
+```
+
+Report only sites that are **new** (not already present in the CDS at the same
+position) — existing genomic sites are not introduced by the oligo.
+
+**UI:** In `OligoRow`, add a small warning badge (e.g. "BsaI site") if any
+new Type IIS sites are detected. Do not change pass/fail status — this is an
+informational flag, not a hard failure, since some library designs intentionally
+use these sites.
+
+Acceptance criteria:
+- An oligo containing `GGTCTC` not present in the reference CDS is flagged.
+- An oligo containing `GGTCTC` at a position where the CDS also has `GGTCTC`
+  is not flagged (not a new introduction).
+- `npm run check:lib-web` passes.
+
+---
+
 ## Notes for orchestrator
 
 - Each task's **Subagent brief** is self-contained — pass it verbatim.
