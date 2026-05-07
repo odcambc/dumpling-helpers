@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import { X, Upload, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { Upload, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Genetic code ─────────────────────────────────────────────────────────────
@@ -1206,9 +1206,7 @@ function SummaryStat({ label, value, color = 'gray' }: { label: string; value: s
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface Props { open: boolean; onClose: () => void }
-
-export function OligoValidator({ open, onClose }: Props) {
+export function OligoValidator() {
   const refRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
 
@@ -1289,23 +1287,15 @@ export function OligoValidator({ open, onClose }: Props) {
     : null
 
   return (
-    <>
-      {open && <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />}
-      <div className={cn(
-        'fixed right-0 top-0 h-full w-[680px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300',
-        open ? 'translate-x-0' : 'translate-x-full',
-      )}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">Oligo validator</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Validate oligos against reference CDS — catch position shifts, frameshifts, wrong codons</p>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100 transition-colors">
-            <X size={16} className="text-gray-500" />
-          </button>
+    <div className="flex flex-col h-full bg-white">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Oligo validator</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Validate oligos against reference CDS — catch position shifts, frameshifts, wrong codons</p>
         </div>
+      </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      <div className="flex-1 overflow-y-auto p-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <FileZone label="Reference FASTA" accept=".fasta,.fa,.fna,.txt" loaded={refLabel} onFile={loadRef} inputRef={refRef} />
             <FileZone label="Oligo CSV (id,sequence)" accept=".csv,.txt" loaded={csvLabel} onFile={loadCsv} inputRef={csvRef} />
@@ -1462,7 +1452,6 @@ export function OligoValidator({ open, onClose }: Props) {
             </div>
           )}
         </div>
-      </div>
-    </>
+    </div>
   )
 }
