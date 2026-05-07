@@ -24,7 +24,7 @@ export function StepPipeline({ form }: Props) {
   const bgzip = useWatch({ control, name: 'bbtools_use_bgzip' })
   const regenerateVariants = useWatch({ control, name: 'regenerate_variants' })
   const oligoFile = useWatch({ control, name: 'oligo_file' })
-  const showVariantsSummary = Boolean(regenerateVariants && oligoFile)
+  const variantsFile = useWatch({ control, name: 'variants_file' })
 
   return (
     <div className="space-y-6">
@@ -97,9 +97,11 @@ export function StepPipeline({ form }: Props) {
         />
       </div>
 
-      {showVariantsSummary && (
-        <InlineVariantsSummary oligoFilePath={oligoFile} />
-      )}
+      <InlineVariantsSummary
+        oligoFilePath={oligoFile}
+        variantsFilePath={variantsFile}
+        regenerateVariants={regenerateVariants}
+      />
 
       <Collapsible title="Advanced parameters">
         <div className="grid grid-cols-2 gap-4">
