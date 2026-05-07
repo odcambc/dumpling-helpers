@@ -140,32 +140,48 @@ export function normaliseMutationType(raw: string): string {
 
 /** Pick the mutant amino acid (single-letter) from a row.
  *
- * Tries `mutation` first (e.g. `S2C` → `C`), then `hgvs` (e.g. `p.Ser2Cys` →
- * `C`), then `name` (e.g. `Ser2Cys` → `C`). Returns the empty string if no
- * single-letter AA can be recovered.
+ * Actual DIMPLE output uses single-letter codes throughout:
+ *   mutation = "F"        (just the mutant AA)
+ *   name     = "M1F"     (WT + pos + mutant, single-letter)
+ *   hgvs     = "p.(M1F)" (parenthesised single-letter)
+ *
+ * Three-letter HGVS forms (p.Ser2Cys) are accepted as a fallback.
+ * Returns the empty string if no single-letter AA can be recovered.
  */
 export function extractMutantAa(row: VariantRow): string {
-  // 1. `mutation` like `S2C` → trailing single uppercase letter (or `*` for stop).
+  // 1. `mutation` is just the mutant AA — the most common DIMPLE format.
+  if (row.mutation?.length === 1 && /^[A-Z*]$/.test(row.mutation)) return row.mutation
+
+  // 2. `mutation` like `S2C` (WT+pos+mutant, single-letter).
   const m1 = row.mutation?.match(/^[A-Z*]\d+([A-Z*])$/)
   if (m1) return m1[1]
 
-  // 2. `hgvs` like `p.Ser2Cys` → trailing 3-letter AA → single letter.
-  const m2 = row.hgvs?.match(/p\.[A-Za-z]{3}\d+([A-Za-z]{3}|\*|Ter)$/)
-  if (m2) {
-    const tail = m2[1]
+  // 3. `name` like `M1F` (WT+pos+mutant, single-letter).
+  const m3a = row.name?.match(/^[A-Z*]\d+([A-Z*])$/)
+  if (m3a) return m3a[1]
+
+  // 4. `hgvs` like `p.(M1F)` or `p.M1F` (parenthesised single-letter).
+  const m2a = row.hgvs?.match(/p\.\(?[A-Z*]\d+([A-Z*])\)?/)
+  if (m2a) return m2a[1]
+
+  // 5. `hgvs` like `p.Ser2Cys` → trailing 3-letter AA → single letter.
+  const m2b = row.hgvs?.match(/p\.[A-Za-z]{3}\d+([A-Za-z]{3}|\*|Ter)$/)
+  if (m2b) {
+    const tail = m2b[1]
     if (tail === '*' || tail.toLowerCase() === 'ter') return '*'
     const single = THREE_TO_ONE[tail.slice(0, 1).toUpperCase() + tail.slice(1).toLowerCase()]
     if (single) return single
   }
 
-  // 3. `name` like `Ser2Cys` → trailing 3-letter AA.
-  const m3 = row.name?.match(/^[A-Za-z]{3}\d+([A-Za-z]{3}|\*|Ter)$/)
-  if (m3) {
-    const tail = m3[1]
+  // 6. `name` like `Ser2Cys` → trailing 3-letter AA.
+  const m3b = row.name?.match(/^[A-Za-z]{3}\d+([A-Za-z]{3}|\*|Ter)$/)
+  if (m3b) {
+    const tail = m3b[1]
     if (tail === '*' || tail.toLowerCase() === 'ter') return '*'
     const single = THREE_TO_ONE[tail.slice(0, 1).toUpperCase() + tail.slice(1).toLowerCase()]
     if (single) return single
   }
+
   return ''
 }
 
@@ -203,8 +219,13 @@ function analyse(rows: VariantRow[], headers: string[]): ParseSuccess {
     }
 
     if (bucket === 'D' || bucket === 'I') {
-      const len = parseInt(row.length, 10)
-      if (!isNaN(len) && len % 3 !== 0) frameshiftCount++
+      // `length` is in codons (amino acids), not nucleotides — using it directly
+      // with % 3 would flag every single-codon indel as a frameshift.
+      // Instead, use the nucleotide sequence in `codon` (inserted bases for
+      // insertions) or `wt_codon` (deleted bases, present in newer DIMPLE output).
+      // If neither is available we cannot determine frameshift status.
+      const ntSeq = row.codon?.trim() || (row as Record<string, string>)['wt_codon']?.trim() || ''
+      if (ntSeq.length > 0 && ntSeq.length % 3 !== 0) frameshiftCount++
     }
   }
 

@@ -165,17 +165,15 @@ export function InlineVariantsSummary({
               isClean ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700',
             )}
           >
-            {isClean ? (
-              <>
-                <CheckCircle size={14} />
-                {result.totalRows.toLocaleString()} variants — schema OK
-              </>
-            ) : (
-              <>
-                <AlertTriangle size={14} />
-                {result.totalRows.toLocaleString()} variants — issues found
-              </>
-            )}
+            {isClean ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+            <span>
+              {result.totalRows.toLocaleString()} variants
+              {result.posMin > 0 && (
+                <> &middot; positions {result.posMin}–{result.posMax}</>
+              )}
+              {' '}&middot; {result.sortedPositions.length} positions covered
+            </span>
+            <span className="ml-auto">{isClean ? 'schema OK' : 'issues found'}</span>
           </div>
 
           {/* Missing columns */}
@@ -186,10 +184,7 @@ export function InlineVariantsSummary({
               </p>
               <div className="flex flex-wrap gap-1">
                 {result.missingColumns.map((c) => (
-                  <span
-                    key={c}
-                    className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-mono"
-                  >
+                  <span key={c} className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-mono">
                     {c}
                   </span>
                 ))}
@@ -213,12 +208,7 @@ export function InlineVariantsSummary({
                     const valid = VALID_MUTATION_TYPES.has(type)
                     return (
                       <div key={type} className="flex items-center gap-2 text-xs">
-                        <span
-                          className={cn(
-                            'w-20 shrink-0',
-                            valid ? 'text-gray-700' : 'text-red-600 font-medium',
-                          )}
-                        >
+                        <span className={cn('w-20 shrink-0', valid ? 'text-gray-700' : 'text-red-600 font-medium')}>
                           {valid ? (MUTATION_TYPE_LABELS[type] ?? type) : `"${type}" ⚠`}
                         </span>
                         <div className="flex-1 bg-gray-200 rounded-full h-1.5">
@@ -237,6 +227,22 @@ export function InlineVariantsSummary({
             </div>
           )}
 
+          {/* Empty cells per column */}
+          {Object.keys(result.emptyCells).length > 0 && (
+            <div className="text-xs space-y-1">
+              <p className="font-semibold text-amber-600 uppercase tracking-wide text-[10px]">
+                Empty cells
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {Object.entries(result.emptyCells).map(([col, n]) => (
+                  <span key={col} className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-mono">
+                    {col}: {n}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Flagged rows */}
           {result.rowIssues.length > 0 && (
             <div className="space-y-1">
@@ -246,9 +252,7 @@ export function InlineVariantsSummary({
               <div className="space-y-1">
                 {result.rowIssues.map((issue) => (
                   <div key={issue.row} className="bg-red-50 rounded px-2 py-1 text-xs">
-                    <p className="font-medium text-red-700">
-                      Row {issue.row}: {issue.name}
-                    </p>
+                    <p className="font-medium text-red-700">Row {issue.row}: {issue.name}</p>
                     <ul className="text-red-600 ml-2">
                       {issue.problems.map((p) => (
                         <li key={p}>• {p}</li>
