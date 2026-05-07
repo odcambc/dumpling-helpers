@@ -17,7 +17,6 @@ import { Preview } from '@/components/Preview/Preview'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
-import { VariantsChecker } from '@/components/VariantsChecker/VariantsChecker'
 import JSZip from 'jszip'
 import yaml from 'js-yaml'
 import Papa from 'papaparse'
@@ -37,7 +36,6 @@ export default function App() {
   const [includeTile, setIncludeTile] = useState(false)
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [runConfig, setRunConfig] = useState<RunConfig>({ env: 'local', local: { cores: 8 } })
-  const [variantsOpen, setVariantsOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
@@ -226,16 +224,6 @@ export default function App() {
 
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full text-gray-500"
-            onClick={() => setVariantsOpen(true)}
-          >
-            Validate variants file
-          </Button>
-
-          <Button
-            type="button"
             className="w-full"
             onClick={handleDownload}
             disabled={downloading}
@@ -312,7 +300,6 @@ export default function App() {
           <Preview config={config} rows={rows} mode={mode} includeTile={includeTile} />
         </div>
       </aside>
-      <VariantsChecker open={variantsOpen} onClose={() => setVariantsOpen(false)} />
     </div>
   )
 }
