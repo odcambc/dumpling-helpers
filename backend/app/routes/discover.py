@@ -1,4 +1,4 @@
-"""
+r"""
 FASTQ file discovery — only mounted when DUMPLING_LOCAL=true.
 
 Scans a data directory for FASTQ files and returns the file prefixes
@@ -8,10 +8,13 @@ the `file` column of the experiments CSV.
 Filename patterns matched (from dumpling/workflow/rules/common.smk):
     [._](?:R1|1)(?:_\d+)?\.(?:fastq|fq)(?:\.gz)?$
 """
+
 from __future__ import annotations
+
 import os
 import re
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -27,7 +30,9 @@ class DiscoverResponse(BaseModel):
 
 
 @router.get("/discover", response_model=DiscoverResponse)
-def discover_fastq(data_dir: str = Query(..., description="Absolute or relative path to FASTQ data directory")) -> DiscoverResponse:
+def discover_fastq(
+    data_dir: str = Query(..., description="Absolute or relative path to FASTQ data directory"),
+) -> DiscoverResponse:
     target = Path(data_dir).expanduser().resolve()
 
     if not target.exists():
@@ -43,7 +48,7 @@ def discover_fastq(data_dir: str = Query(..., description="Absolute or relative 
             if item.is_file() and _R1_SUFFIX.search(item.name):
                 prefix = _R1_SUFFIX.sub("", item.name)
                 prefixes.add(prefix)
-    except PermissionError:
-        raise HTTPException(status_code=403, detail="Permission denied reading directory")
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="Permission denied reading directory") from exc
 
     return DiscoverResponse(data_dir=str(target), prefixes=sorted(prefixes))

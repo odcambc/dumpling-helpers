@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
 import { VariantsChecker } from '@/components/VariantsChecker/VariantsChecker'
+import { OligoValidator } from '@/components/OligoValidator/OligoValidator'
 import JSZip from 'jszip'
 import yaml from 'js-yaml'
 import Papa from 'papaparse'
@@ -37,6 +38,7 @@ export default function App() {
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [runConfig, setRunConfig] = useState<RunConfig>({ env: 'local', local: { cores: 8 } })
   const [variantsOpen, setVariantsOpen] = useState(false)
+  const [oligoOpen, setOligoOpen] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
@@ -218,6 +220,16 @@ export default function App() {
             variant="ghost"
             size="sm"
             className="w-full text-gray-500"
+            onClick={() => setOligoOpen(true)}
+          >
+            Validate oligos
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full text-gray-500"
             onClick={() => setVariantsOpen(true)}
           >
             Validate variants file
@@ -302,6 +314,7 @@ export default function App() {
         </div>
       </aside>
       <VariantsChecker open={variantsOpen} onClose={() => setVariantsOpen(false)} />
+      <OligoValidator open={oligoOpen} onClose={() => setOligoOpen(false)} />
     </div>
   )
 }
