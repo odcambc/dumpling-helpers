@@ -89,6 +89,9 @@ library-qc/frontend/dist/
 .env.local
 .env*.local
 
+# Claude Code — local overrides are machine-specific, never commit
+.claude/settings.local.json
+
 # Local example data (not for distribution)
 examples/
 
