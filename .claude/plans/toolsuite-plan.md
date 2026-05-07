@@ -160,7 +160,7 @@ Standalone `.devcontainer` removed — monorepo `.devcontainer` covers both apps
 
 ---
 
-### P3.2 — Transplant OligoValidator  `TODO`
+### P3.2 — Transplant OligoValidator  `DONE`
 
 **Depends on:** P3.1 `DONE`, P1.2 `DONE`
 
@@ -215,7 +215,7 @@ Acceptance criteria:
 
 ---
 
-### P3.3 — Library composition panel  `TODO`
+### P3.3 — Library composition panel  `DONE`
 
 **Depends on:** P3.1 `DONE`
 
@@ -265,9 +265,9 @@ Acceptance criteria:
 
 ## Phase 4 — Sequencing planning
 
-### P4.1 — Sequencing planner in library-qc  `TODO`
+### P4.1 — Sequencing planner in library-qc  `DONE`
 
-**Depends on:** P3.3 `TODO`, P1.4 `DONE`
+**Depends on:** P3.3 `DONE`, P1.4 `DONE`
 
 **Subagent brief:**
 
@@ -305,8 +305,8 @@ Add `/sequencing-plan` to the router and a nav link on the home page.
 
 Acceptance criteria:
 - Page renders with all inputs and derived outputs.
-- Numbers match manual calculation: 500 variants × 500× coverage × 10 samples
-  = 2.5 B reads total; on NextSeq 400M = 7 flow cells.
+- Numbers match manual calculation: 500,000 variants × 500× coverage × 10 samples
+  = 2.5 B reads total; on NextSeq 400M = ceil(2.5 B / 400 M) = 7 flow cells.
 - `npm run check:lib-web` passes.
 
 ---
