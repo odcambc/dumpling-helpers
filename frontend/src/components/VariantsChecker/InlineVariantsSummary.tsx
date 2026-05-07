@@ -9,8 +9,12 @@ import {
 } from '@/lib/validateVariants'
 
 interface Props {
-  /** Path the user typed into `oligo_file` — only displayed for context. */
-  oligoFilePath: string
+  /** Path the user typed into `oligo_file` (only displayed for context). */
+  oligoFilePath?: string
+  /** Path the user typed into `variants_file` (only displayed for context). */
+  variantsFilePath?: string
+  /** Whether the pipeline will regenerate variants from the oligo file at runtime. */
+  regenerateVariants?: boolean
 }
 
 interface Loaded {
@@ -19,13 +23,24 @@ interface Loaded {
 }
 
 /**
- * Compact inline variants-validation summary embedded in Step 3.
+ * Compact inline variants spot-check embedded in Step 3.
  *
- * The browser cannot read an arbitrary filesystem path (`oligo_file` is just a
- * string the user typed), so we prompt them to drop or pick the same file
- * client-side to get a validation read-out.
+ * The browser cannot read an arbitrary filesystem path (`oligo_file` /
+ * `variants_file` are just strings the user typed), so we always prompt them to
+ * drop or pick a CSV client-side to get a validation read-out. The headline
+ * copy adapts to which file is in play:
+ *
+ *   - regenerate_variants = true  → variants don't exist on disk yet; user can
+ *     still drop a known-good `designed_variants.csv` to spot-check shape.
+ *   - regenerate_variants = false → variants_file is the file the pipeline will
+ *     consume; drop the same CSV here to sanity-check it.
+ *   - neither set → generic "drop a variants CSV" prompt.
  */
-export function InlineVariantsSummary({ oligoFilePath }: Props) {
+export function InlineVariantsSummary({
+  oligoFilePath,
+  variantsFilePath,
+  regenerateVariants,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -66,16 +81,42 @@ export function InlineVariantsSummary({ oligoFilePath }: Props) {
   const hasIssues = result && (result.missingColumns.length > 0 || result.rowIssues.length > 0)
   const isClean = result && !hasIssues
 
+  // ── Headline copy adapts to context ──
+  let description: React.ReactNode
+  if (regenerateVariants) {
+    description = (
+      <>
+        Pipeline will regenerate variants at runtime
+        {oligoFilePath && (
+          <>
+            {' '}from <span className="font-mono text-gray-700">{oligoFilePath}</span>
+          </>
+        )}
+        . Drop a <span className="font-mono text-gray-700">designed_variants.csv</span>{' '}
+        here to spot-check shape client-side.
+      </>
+    )
+  } else if (variantsFilePath) {
+    description = (
+      <>
+        Pipeline will consume{' '}
+        <span className="font-mono text-gray-700">{variantsFilePath}</span>. Drop the
+        same CSV here to sanity-check it client-side before running.
+      </>
+    )
+  } else {
+    description = (
+      <>Drop a variants CSV (<span className="font-mono text-gray-700">designed_variants.csv</span>{' '}
+      shape) to validate it client-side.</>
+    )
+  }
+
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-gray-800">Validate variants file</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Pipeline will regenerate variants from{' '}
-            <span className="font-mono text-gray-700">{oligoFilePath}</span>. Drop the
-            same CSV here to sanity-check it client-side before running.
-          </p>
+          <p className="text-sm font-medium text-gray-800">Variants spot-check</p>
+          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
         </div>
       </div>
 

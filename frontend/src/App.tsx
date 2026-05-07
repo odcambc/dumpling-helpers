@@ -281,13 +281,19 @@ export default function App() {
             ← Back
           </Button>
           <span className="text-xs text-gray-400">Step {step} of {STEPS.length}</span>
-          <Button
-            type="button"
-            onClick={() => setStep((s) => Math.min(5, s + 1) as WizardStep)}
-            disabled={step === 5}
-          >
-            Next →
-          </Button>
+          {step < 5 ? (
+            <Button
+              type="button"
+              onClick={() => setStep((s) => Math.min(5, s + 1) as WizardStep)}
+            >
+              Next →
+            </Button>
+          ) : (
+            // Spacer to keep `justify-between` three-column layout balanced.
+            <div aria-hidden className="invisible">
+              <Button type="button" tabIndex={-1}>Next →</Button>
+            </div>
+          )}
         </div>
       </main>
 
