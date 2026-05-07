@@ -13,7 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-router = APIRouter()
+router = APIRouter(prefix="/browse", tags=["browse"])
 
 _VALID_EXTENSIONS = {
     ".fasta",
@@ -44,7 +44,7 @@ class BrowseResponse(BaseModel):
     entries: list[DirEntry]
 
 
-@router.get("/browse", response_model=BrowseResponse)
+@router.get("", response_model=BrowseResponse)
 def browse(path: str = Query(default=str(Path.home()))) -> BrowseResponse:
     target = Path(path).expanduser().resolve()
 
