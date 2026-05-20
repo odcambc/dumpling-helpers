@@ -331,7 +331,7 @@ during Golden Gate assembly.
 
 ---
 
-### P5.1 — Sequence-based variant detection  `TODO`
+### P5.1 — Sequence-based variant detection  `DONE`
 
 **Depends on:** P3.2 `DONE` (OligoValidator already in library-qc)
 
@@ -408,7 +408,7 @@ Acceptance criteria:
 
 ---
 
-### P5.2 — Type IIS site scanner  `TODO`
+### P5.2 — Type IIS site scanner  `DONE`
 
 **Depends on:** P5.1 `DONE`
 
