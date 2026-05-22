@@ -1,42 +1,35 @@
 {
   "name": "dumpling-helpers",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
+
+  "image": "mcr.microsoft.com/devcontainers/python:3.13-bookworm",
+
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "lts" },
+    "ghcr.io/devcontainers/features/git:1": {}
   },
+
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
-
-  // NET_ADMIN lets the postStartCommand run iptables/ipset for the egress firewall.
-  // Remove this (and the postStartCommand) if you don't want network sandboxing.
-  "capAdd": ["NET_ADMIN"],
-
-  // Install all deps on first container create.
-  "postCreateCommand": "cd /workspace && npm run install:all",
-
-  // Restrict outbound network to the allowlist on every container start.
-  // Comment out to disable sandboxing (e.g. when adding new dependencies).
-  "postStartCommand": "sudo bash /workspace/.devcontainer/init-firewall.sh",
 
   // Forward both app pairs: wizard (8000/5173) and library-qc (8001/5174).
   "forwardPorts": [8000, 8001, 5173, 5174],
   "portsAttributes": {
-    "8000": { "label": "Wizard API",      "onAutoForward": "silent" },
-    "8001": { "label": "Library QC API",  "onAutoForward": "silent" },
-    "5173": { "label": "Wizard UI",       "onAutoForward": "openBrowser" },
-    "5174": { "label": "Library QC UI",   "onAutoForward": "openBrowser" }
+    "8000": { "label": "Wizard API",     "onAutoForward": "silent" },
+    "8001": { "label": "Library QC API", "onAutoForward": "silent" },
+    "5173": { "label": "Wizard UI",      "onAutoForward": "openBrowser" },
+    "5174": { "label": "Library QC UI",  "onAutoForward": "openBrowser" }
   },
 
-  "remoteUser": "claude",
+  "remoteUser": "vscode",
+
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.local/bin:$PATH\" && cd /workspace && npm run install:all",
 
   "customizations": {
     "vscode": {
       "extensions": [
-        "anthropic.claude-code",
         "ms-python.python",
         "charliermarsh.ruff",
         "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss"
       ],
       "settings": {
@@ -44,12 +37,6 @@
         "python.defaultInterpreterPath": "/workspace/backend/.venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
-        },
-        "[typescript]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode"
-        },
-        "[typescriptreact]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode"
         }
       }
     }
