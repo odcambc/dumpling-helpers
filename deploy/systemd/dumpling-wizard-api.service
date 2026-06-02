@@ -1,0 +1,25 @@
+[Unit]
+Description=Dumpling wizard API (FastAPI/uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=dumpling
+Group=dumpling
+WorkingDirectory=/srv/dumpling-helpers/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=UV_CACHE_DIR=/home/dumpling/.cache/uv
+Environment=ALLOWED_ORIGINS=https://wizard.example.com
+ExecStart=/usr/local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/dumpling/.cache/uv /srv/dumpling-helpers/backend
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

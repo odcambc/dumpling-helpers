@@ -1,0 +1,78 @@
+# /etc/caddy/conf.d/dumpling-helpers.caddy
+#
+# Vhost snippet for the dumpling-helpers monorepo. NOT a full Caddyfile.
+# Meant to be loaded by the main /etc/caddy/Caddyfile via:
+#
+#     import /etc/caddy/conf.d/*.caddy
+#
+# This snippet contains only site blocks — no global options block. The
+# global options live in the main Caddyfile (owned by whatever first
+# configured this VPS). Per-vhost `tls <cert> <key>` directives below tell
+# Caddy to skip ACME for these two hosts only, so existing Let's Encrypt
+# vhosts on the same Caddy continue to renew normally.
+#
+# TLS: Cloudflare Origin Certificate covering *.<domain>, pre-placed at
+# /etc/caddy/origin.pem and /etc/caddy/origin.key. Trusted only by CF —
+# the VPS must be reached via Cloudflare's proxy (orange-cloud DNS).
+#
+# Hostnames come from environment variables read by Caddy at startup.
+# See deploy/.env.example for the names; install path on the VPS is
+# /etc/caddy/Caddyfile.env (loaded via a systemd drop-in — see README).
+
+# ─── Wizard (dumpling-helpers root app) ──────────────────────────────────
+{$WIZARD_HOST} {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+
+	encode zstd gzip
+
+	# API: cap upload size and proxy to the wizard backend.
+	# 25 MB is generous for the CSV/YAML uploads this app handles.
+	handle /api/* {
+		request_body {
+			max_size 25MB
+		}
+		reverse_proxy 127.0.0.1:8000 {
+			# Pass real client info through to FastAPI logs.
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# SPA: serve built static files with React Router fallback.
+	# `try_files` first looks for the exact path; if it doesn't exist,
+	# it rewrites to /index.html so React Router can handle the route.
+	handle {
+		root * /srv/dumpling-helpers/frontend/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/wizard.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# ─── Library-QC ──────────────────────────────────────────────────────────
+#
+# TODO (P6.1.a — user contribution):
+#
+# Mirror the wizard block above for the library-qc app. The differences:
+#
+#   • hostname     {$LIBRARY_QC_HOST}
+#   • API upstream 127.0.0.1:8001
+#   • static root  /srv/dumpling-helpers/library-qc/frontend/dist
+#   • log path     /var/log/caddy/library-qc.log
+#
+# Everything else (TLS cert, compression, body cap, header forwarding, SPA
+# fallback) should be identical — these are repo-wide policies, not
+# per-app choices.
+#
+# Why you and not me: this enforces that you actually read the wizard
+# block before shipping it. The Caddyfile is the contract between the two
+# halves of each app (static + API), and getting it wrong is silent — you
+# get a 502 or a blank page rather than a build error.
