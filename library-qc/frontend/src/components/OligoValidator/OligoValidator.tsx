@@ -667,7 +667,7 @@ function FileZone({
   label, accept, loaded, onFile, inputRef,
 }: {
   label: string; accept: string; loaded: string | null
-  onFile: (f: File) => void; inputRef: React.RefObject<HTMLInputElement>
+  onFile: (f: File) => void; inputRef: React.RefObject<HTMLInputElement | null>
 }) {
   return (
     <div

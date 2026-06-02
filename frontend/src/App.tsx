@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from 'react-router-dom'
 import { Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
@@ -41,7 +41,12 @@ export default function App() {
   const [downloadSuccess, setDownloadSuccess] = useState(false)
 
   const form = useForm<ConfigFormValues>({
-    resolver: zodResolver(configSchema),
+    // configSchema uses z.default() on many fields, so zod's *input* type has
+    // them optional while ConfigFormValues (z.infer = output) has them required.
+    // configDefaults supplies every field, so input === output at runtime; cast
+    // the resolver to the output type rather than splitting the form generics
+    // (which would ripple input-typing through every wizard step and watch()).
+    resolver: zodResolver(configSchema) as unknown as Resolver<ConfigFormValues>,
     defaultValues: configDefaults,
     mode: 'onBlur',
   })
