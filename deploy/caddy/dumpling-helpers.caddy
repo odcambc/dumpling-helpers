@@ -56,23 +56,3 @@
 		format json
 	}
 }
-
-# ─── Library-QC ──────────────────────────────────────────────────────────
-#
-# TODO (P6.1.a — user contribution):
-#
-# Mirror the wizard block above for the library-qc app. The differences:
-#
-#   • hostname     {$LIBRARY_QC_HOST}
-#   • API upstream 127.0.0.1:8001
-#   • static root  /srv/dumpling-helpers/library-qc/frontend/dist
-#   • log path     /var/log/caddy/library-qc.log
-#
-# Everything else (TLS cert, compression, body cap, header forwarding, SPA
-# fallback) should be identical — these are repo-wide policies, not
-# per-app choices.
-#
-# Why you and not me: this enforces that you actually read the wizard
-# block before shipping it. The Caddyfile is the contract between the two
-# halves of each app (static + API), and getting it wrong is silent — you
-# get a 502 or a blank page rather than a build error.

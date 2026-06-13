@@ -11,13 +11,11 @@
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
 
-  // Forward both app pairs: wizard (8000/5173) and library-qc (8001/5174).
-  "forwardPorts": [8000, 8001, 5173, 5174],
+  // Forward the suite: API (8000) and UI (5173).
+  "forwardPorts": [8000, 5173],
   "portsAttributes": {
-    "8000": { "label": "Wizard API",     "onAutoForward": "silent" },
-    "8001": { "label": "Library QC API", "onAutoForward": "silent" },
-    "5173": { "label": "Wizard UI",      "onAutoForward": "openBrowser" },
-    "5174": { "label": "Library QC UI",  "onAutoForward": "openBrowser" }
+    "8000": { "label": "API", "onAutoForward": "silent" },
+    "5173": { "label": "UI",  "onAutoForward": "openBrowser" }
   },
 
   "remoteUser": "vscode",

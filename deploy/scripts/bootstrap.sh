@@ -70,7 +70,6 @@ ufw --force enable
 
 echo "==> install systemd units"
 install -m 0644 "$REPO_DIR/deploy/systemd/dumpling-wizard-api.service" /etc/systemd/system/
-install -m 0644 "$REPO_DIR/deploy/systemd/dumpling-libqc-api.service" /etc/systemd/system/
 systemctl daemon-reload
 
 echo ""
@@ -86,4 +85,4 @@ echo "       cp $REPO_DIR/deploy/caddy/Caddyfile /etc/caddy/Caddyfile"
 echo "  4. First deploy:"
 echo "       sudo bash $REPO_DIR/deploy/scripts/deploy.sh"
 echo "  5. Enable services:"
-echo "       systemctl enable --now caddy dumpling-wizard-api dumpling-libqc-api"
+echo "       systemctl enable --now caddy dumpling-wizard-api"

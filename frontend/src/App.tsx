@@ -29,6 +29,13 @@ const STEPS: { label: string; title: string }[] = [
   { label: 'Run', title: 'Run command' },
 ]
 
+// QC tools are sibling routes within this app, linked from the wizard sidebar.
+const QC_TOOLS: { label: string; path: string }[] = [
+  { label: 'Oligo validator', path: '/oligo-validator' },
+  { label: 'Library composition', path: '/library-composition' },
+  { label: 'Sequencing planner', path: '/sequencing-plan' },
+]
+
 export default function App() {
   const [step, setStep] = useState<WizardStep>(1)
   const [rows, setRows] = useState<SampleRowValues[]>([makeEmptyRow()])
@@ -217,15 +224,23 @@ export default function App() {
             </div>
           )}
 
-          <Link
-            to="/oligo-validator"
-            className={cn(
-              'w-full inline-flex items-center justify-center rounded-md text-sm font-medium',
-              'h-8 px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors',
-            )}
-          >
-            Validate oligos
-          </Link>
+          <div className="space-y-1">
+            <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              QC tools
+            </p>
+            {QC_TOOLS.map((tool) => (
+              <Link
+                key={tool.path}
+                to={tool.path}
+                className={cn(
+                  'w-full inline-flex items-center rounded-md text-sm font-medium',
+                  'h-8 px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors',
+                )}
+              >
+                {tool.label}
+              </Link>
+            ))}
+          </div>
 
           <Button
             type="button"

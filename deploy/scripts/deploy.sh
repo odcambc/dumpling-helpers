@@ -21,16 +21,16 @@ sudo -u $SVC_USER git pull --ff-only
 echo "==> install deps (npm + uv)"
 sudo -u $SVC_USER npm run install:all
 
-echo "==> build frontends"
+echo "==> build frontend"
 sudo -u $SVC_USER npm run build
 
 echo "==> reload caddy (picks up new static files)"
 systemctl reload caddy
 
-echo "==> restart API services"
-systemctl restart dumpling-wizard-api dumpling-libqc-api
+echo "==> restart API service"
+systemctl restart dumpling-wizard-api
 
 echo ""
 echo "==> deploy complete."
 echo "tail logs:"
-echo "  journalctl -u dumpling-wizard-api -u dumpling-libqc-api -f"
+echo "  journalctl -u dumpling-wizard-api -f"

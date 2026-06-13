@@ -82,7 +82,6 @@ __pycache__/
 # Node / frontend build
 node_modules/
 frontend/dist/
-library-qc/frontend/dist/
 
 # Environment files
 .env
