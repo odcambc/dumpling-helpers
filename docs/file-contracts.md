@@ -280,9 +280,10 @@ or library tag, e.g. `ABCG2_DMS-1_`). Recognised suffixes:
 | `_(insert\|ins)-<n>_<L>-<pos>`                  | Insertion of length `L` codons at AA position `pos`, sequence unspecified  | `..._insert-2_1-42` |
 | `_(insert\|ins)-<n>_<ACGT…>-<pos>`              | Insertion of an explicit nucleotide sequence at AA position `pos` (length = `len(seq)`) | `..._insert-1_GGC-2` |
 
-Oligos whose ID does not match any of these patterns are still validated, but
-via gapless alignment to the CDS rather than against a parsed claim — they
-appear with `claimed = ""` in the validation report.
+Oligos whose ID does not match any of these patterns are still validated by
+alignment to the CDS; with no parsed claim to compare against, they appear with
+an empty `claimed` column and status `pass_unclaimed` (or `warn_no_change` /
+`fail_alignment`) in the validation report.
 
 ### Example
 
@@ -296,7 +297,8 @@ Kir21_delete-1_3-10,AAGACTCAACCAATGACCCTTCCCGGCATTGGTCTCCCTCACCATGGGatcAGTGCGAAC
 
 - Parser: `frontend/src/components/OligoValidator/OligoValidator.tsx` —
   `parseOligoCsv`.
-- ID parsers: same file — `parseClaimedMutation`, `parseClaimedIndel`.
+- ID parsers: `frontend/src/lib/oligoAlignment.ts` —
+  `parseClaimedMutation`, `parseClaimedIndel`.
 
 ### Notes
 
@@ -378,7 +380,7 @@ count,pos,mutation_type,name,codon,mutation,length,hgvs
 ### Purpose
 
 Per-oligo validation report emitted as a download from the OligoValidator
-side-panel. One row per input oligo, recording the variant the oligo was
+page. One row per input oligo, recording the variant the oligo was
 *claimed* to encode (parsed from the ID), the variant the oligo *actually*
 encodes (recovered by alignment to the reference CDS), and any problems
 flagged.
@@ -401,48 +403,77 @@ flagged.
 - Filename: `<reference-header>-oligo-validation.csv` (whitespace replaced
   with `_`).
 
+The report is the output of **sequence-based detection**: the oligo is aligned
+to the CDS (k-mer vote → adapter strip → banded affine-gap alignment), the
+alignment is walked into classified changes, and those are compared
+best-effort against the claim parsed from the ID. The single `detected` column
+carries the recovered change(s); `status` records how detection compared to
+the claim.
+
 ### Columns (all present, in this order)
 
-| column          | type                                            | meaning                                                                                      |
-| --------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `id`            | string                                          | The oligo ID (column 0 of the input CSV).                                                    |
-| `status`        | enum: `pass` \| `warn` \| `fail`                | Overall validation result.                                                                   |
-| `claimed`       | string (may be empty)                           | Substitution claim parsed from the ID (`<wt><pos><mut>`, single-letter), e.g. `S2C`.         |
-| `claimed_indel` | string (may be empty)                           | Indel claim parsed from the ID, formatted as `<type>@<pos>`, e.g. `deletion@10`.             |
-| `cds_align_pos` | integer (may be empty)                          | 0-based offset in the CDS where oligo position 0 aligns (may be negative if 5' adapter precedes the CDS). Empty if no alignment. |
-| `change_type`   | enum: `sub` \| `del` \| `ins` (may be empty)    | The change type recovered from alignment (first detected change, if any).                    |
-| `cds_nt_pos`    | integer (may be empty)                          | 1-based CDS nucleotide position of the change.                                               |
-| `aa_pos`        | integer (may be empty)                          | 1-based AA position of the change.                                                           |
-| `ref_bases`     | string (may be empty)                           | Reference bases at the change site.                                                          |
-| `oligo_bases`   | string (may be empty)                           | Oligo bases at the change site (empty for deletions).                                        |
-| `wt_aa`         | single-letter AA (may be empty)                 | WT AA at the change site (substitutions, codon-aligned only).                                |
-| `mut_aa`        | single-letter AA (may be empty)                 | Mutant AA encoded by the oligo (substitutions, codon-aligned only).                          |
-| `frameshift`    | enum: `yes` \| `no`                             | Whether the recovered change is a frameshift indel.                                          |
-| `problems`      | string (may be empty)                           | Pipe-separated (` \| `) human-readable list of issues, used to populate the warn/fail status.|
+| column             | type                                                                                      | meaning                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | string                                                                                    | The oligo ID (column 0 of the input CSV).                                                                                     |
+| `status`           | enum: `pass` \| `pass_unclaimed` \| `warn_mismatch` \| `warn_no_change` \| `fail_alignment` | Overall result (see "Status values" below).                                                                                   |
+| `detected`         | string                                                                                    | Human-readable summary of the change(s) recovered by alignment, or `no change` if none. Multiple changes are joined by `; `.  |
+| `claimed`          | string (may be empty)                                                                     | Variant parsed from the ID: a substitution as `<wt><pos><mut>` (single-letter, e.g. `S2C`) or an indel as `<type>@<pos>` (e.g. `deletion@10`). Empty when the ID has no parseable claim. |
+| `cds_align_pos`    | integer (may be empty)                                                                    | 0-based CDS offset where oligo position 0 aligns (may be negative if a 5' adapter precedes the CDS). Empty if alignment failed. |
+| `align_confidence` | float in `[0, 1]`                                                                         | k-mer vote confidence in the placement, to 2 decimals (e.g. `0.98`).                                                          |
+| `problems`         | string (may be empty)                                                                     | Pipe-separated (` \| `) human-readable issues; populated mainly for `warn_*` / `fail_*` rows.                                 |
+
+#### `detected` change grammar
+
+Each change is one of:
+
+- **substitution** — `<wtAA><aaPos><mutAA> (<refNt>><altNt>)`, e.g. `S2C (AGC>TGC)`.
+- **deletion** — `<n> nt deleted (<k> codon(s), in-frame) at AA <pos>` when
+  in-frame, or `<n> nt deleted (frameshift) at AA <pos>` otherwise.
+- **insertion** — same as deletion with `inserted` in place of `deleted`.
+
+Indels are always reported primarily in nucleotides, with the codon count
+secondary — this is deliberate (a 1-nt deletion is a frameshift, not "0 codons").
+
+#### Status values
+
+| status           | meaning                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `pass`           | Detected change matches the ID claim, with no off-target changes.                                      |
+| `pass_unclaimed` | Change(s) detected, but the ID has no parseable claim to compare against.                              |
+| `warn_mismatch`  | Detected change differs from the claim (wrong residue, wrong position, wrong inserted bases, or extra off-target changes). |
+| `warn_no_change` | Oligo matches the CDS in the aligned window — no change at all (likely a synthesis failure or WT oligo). |
+| `fail_alignment` | The oligo could not be placed reliably in the CDS.                                                     |
 
 ### Example
 
 ```csv
-id,status,claimed,claimed_indel,cds_align_pos,change_type,cds_nt_pos,aa_pos,ref_bases,oligo_bases,wt_aa,mut_aa,frameshift,problems
-"ABCG2_DMS-1_Ser2Cys","pass","S2C","",-37,"sub","4","2","AGC","TGC","S","C","no",""
-"ABCG2_DMS-1_Ser2Ser","warn","S2S","",-37,"sub","4","2","AGC","AGC","S","S","no","Position 2: claimed synonymous but codon unchanged from reference"
-"Kir21_delete-1_3-10","pass","","deletion@10",-30,"del","28","10","CTGAGTAAT","","","","no",""
+id,status,detected,claimed,cds_align_pos,align_confidence,problems
+"ABCG2_DMS-1_Ser2Cys","pass","S2C (AGC>TGC)","S2C",-37,"0.98",""
+"ABCG2_DMS-1_Ser2Ser","warn_no_change","no change","S2S",-37,"0.98","No sequence change vs CDS — likely synthesis failure or a wild-type oligo"
+"Kir21_delete-1_3-10","pass","3 nt deleted (1 codon, in-frame) at AA 10","deletion@10",-30,"0.97",""
 ```
 
 ### Schemas of record
 
 - Producer: `frontend/src/components/OligoValidator/OligoValidator.tsx` —
   `downloadReport` (header definition and row layout).
+- Detection + change-formatting logic: `frontend/src/lib/oligoAlignment.ts` —
+  `detectVariant` (status), `describeDiffs` / `describeDiff` (the `detected`
+  column).
 - This format has no consumer in this repository — there is no parser; it is
   intended as a human-readable QC artifact.
 
 ### Notes
 
-- `status` is `pass` only when all checks (alignment found, claim matches
-  recovered change, frame preserved for non-frameshift designs) succeed.
-- For oligos with no parseable claim in the ID, `claimed` and
-  `claimed_indel` are both empty and validation falls back to gapless
-  alignment.
+- This is a redesigned report (sequence-based detection). It replaces an
+  earlier claim-verification report whose per-change columns (`change_type`,
+  `cds_nt_pos`, `aa_pos`, `ref_bases`, `oligo_bases`, `wt_aa`, `mut_aa`,
+  `frameshift`, `claimed_indel`) are now folded into the single human-readable
+  `detected` column.
+- Type IIS (BsaI / BsmBI) recognition sites introduced by the oligo are
+  surfaced as an informational badge in the UI but are **not** included in this
+  CSV and do **not** affect `status` (see `scanTypeIISites` in
+  `frontend/src/lib/oligoAlignment.ts`).
 
 ---
 
