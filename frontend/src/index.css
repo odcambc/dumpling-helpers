@@ -1,27 +1,9 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand: oklch(55% 0.22 265);
-  --color-brand-light: oklch(95% 0.05 265);
-  --color-brand-dark: oklch(40% 0.22 265);
+/* Shared design tokens + baseline (theme block + base styles). */
+@import "../../packages/ui/src/theme.css";
 
-  --font-sans: "Inter", system-ui, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-}
-
-body {
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  background-color: oklch(97% 0.005 265);
-}
+/* Let Tailwind scan the shared component source for class names — files outside
+   this app's tree are not auto-detected, so utility classes used only inside
+   @dumplingkit/ui components would otherwise be purged from the build. */
+@source "../../packages/ui/src";

@@ -3,9 +3,7 @@ import { Copy, Check } from 'lucide-react'
 import type { RunConfig, RunEnvironment } from '@/types'
 import type { ConfigFormValues } from '@/schemas/config'
 import { buildCommand, buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
-import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Toggle } from '@/components/ui/toggle'
+import { Field, Input, Toggle } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 
 interface Props {

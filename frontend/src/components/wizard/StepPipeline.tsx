@@ -1,9 +1,6 @@
 import { useWatch, type UseFormReturn } from 'react-hook-form'
 import type { ConfigFormValues } from '@/schemas/config'
-import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Toggle } from '@/components/ui/toggle'
-import { Collapsible } from '@/components/ui/collapsible'
+import { Field, Input, Toggle, Collapsible } from '@dumplingkit/ui'
 import { InlineVariantsSummary } from '@/components/VariantsChecker/InlineVariantsSummary'
 import { cn } from '@/lib/utils'
 

@@ -1,7 +1,6 @@
 import type { UseFormReturn } from 'react-hook-form'
 import type { ConfigFormValues } from '@/schemas/config'
-import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { Field, Input } from '@dumplingkit/ui'
 
 interface Props {
   form: UseFormReturn<ConfigFormValues>

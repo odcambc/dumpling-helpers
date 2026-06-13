@@ -1,8 +1,6 @@
 import { useWatch, type UseFormReturn } from 'react-hook-form'
 import type { ConfigFormValues } from '@/schemas/config'
-import { Field } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Toggle } from '@/components/ui/toggle'
+import { Field, Input, Toggle } from '@dumplingkit/ui'
 
 interface Props {
   form: UseFormReturn<ConfigFormValues>

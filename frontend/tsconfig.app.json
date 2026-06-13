@@ -22,7 +22,10 @@
     "noFallthroughCasesInSwitch": true,
     /* paths resolve relative to this config; no baseUrl needed under
        moduleResolution: bundler, and baseUrl is removed in TS 7. */
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@dumplingkit/ui": ["../packages/ui/src/index.ts"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../packages/ui/src"]
 }

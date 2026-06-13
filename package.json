@@ -1,6 +1,10 @@
 {
   "name": "dumpling-helpers",
   "private": true,
+  "workspaces": [
+    "frontend",
+    "packages/*"
+  ],
   "scripts": {
     "dev":         "concurrently --names \"dh-api,dh-web\" --prefix-colors \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api":     "cd backend && uv run uvicorn app.main:app --reload --port 8000",
@@ -20,7 +24,7 @@
     "format:web":      "npm run --prefix frontend lint:fix",
     "format:api":      "cd backend && uv run ruff format .",
 
-    "install:all": "npm install && npm install --prefix frontend && cd backend && uv sync"
+    "install:all": "npm install && cd backend && uv sync"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
