@@ -12,9 +12,10 @@ export default defineConfig({
       // JSX (files under node_modules are not transformed). Workspace install
       // provides its deps; this alias governs how the app bundles it.
       '@dumplingkit/ui': resolve(__dirname, '../../../packages/ui/src/index.ts'),
+      '@dumplingkit/bio': resolve(__dirname, '../../../packages/bio/src/index.ts'),
     },
   },
-  optimizeDeps: { exclude: ['@dumplingkit/ui'] },
+  optimizeDeps: { exclude: ['@dumplingkit/ui', '@dumplingkit/bio'] },
   server: {
     port: 5173,
     strictPort: true,

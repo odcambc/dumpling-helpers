@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@dumplingkit/ui": "*",
+    "@dumplingkit/bio": "*",
     "@hookform/resolvers": "^5.2.2",
     "js-yaml": "^4.1.1",
     "jszip": "^3.10.1",

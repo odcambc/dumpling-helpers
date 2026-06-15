@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Upload, X, AlertTriangle, CheckCircle } from 'lucide-react'
 import type { ConfigFormValues } from '@/schemas/config'
 import { configToStructure } from '@/lib/structure'
-import { parseFasta } from '@/lib/parseFasta'
+import { parseFasta } from '@dumplingkit/bio'
 import { RegionTrack } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 

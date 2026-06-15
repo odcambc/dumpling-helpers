@@ -22,8 +22,9 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@dumplingkit/ui": ["../../../packages/ui/src/index.ts"]
+      "@dumplingkit/ui": ["../../../packages/ui/src/index.ts"],
+      "@dumplingkit/bio": ["../../../packages/bio/src/index.ts"]
     }
   },
-  "include": ["src", "../../../packages/ui/src"]
+  "include": ["src", "../../../packages/ui/src", "../../../packages/bio/src"]
 }

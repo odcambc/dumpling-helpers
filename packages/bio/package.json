@@ -1,0 +1,11 @@
+{
+  "name": "@dumplingkit/bio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared sequence/bioinformatics parsing utilities for the suite.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

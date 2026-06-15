@@ -1,5 +1,4 @@
-// Minimal FASTA parser — pure, no deps. Generic enough to promote into a shared
-// package once a second tool (stromboli/fusilli enrichment) needs it.
+// Minimal FASTA parser — pure, no deps.
 
 export interface FastaRecord {
   header: string
@@ -28,4 +27,9 @@ export function parseFasta(text: string): FastaRecord[] {
   }
   flush()
   return records
+}
+
+/** The leading whitespace-delimited token of a FASTA header — the sequence name. */
+export function fastaName(header: string): string {
+  return header.split(/\s/)[0]
 }
