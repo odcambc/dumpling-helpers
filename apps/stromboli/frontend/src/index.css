@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Shared design tokens + baseline from the suite design system. */
+@import "../../../../packages/ui/src/theme.css";
+
+/* Let Tailwind scan the shared component source for class names. */
+@source "../../../../packages/ui/src";
