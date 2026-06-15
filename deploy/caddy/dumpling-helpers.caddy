@@ -5,43 +5,37 @@
 #
 #     import /etc/caddy/conf.d/*.caddy
 #
-# This snippet contains only site blocks — no global options block. The
-# global options live in the main Caddyfile (owned by whatever first
-# configured this VPS). Per-vhost `tls <cert> <key>` directives below tell
-# Caddy to skip ACME for these two hosts only, so existing Let's Encrypt
-# vhosts on the same Caddy continue to renew normally.
+# This snippet contains only site blocks — no global options block. The global
+# options live in the main Caddyfile (owned by whatever first configured this
+# VPS). Per-vhost `tls <cert> <key>` directives below tell Caddy to skip ACME
+# for these hosts only, so existing Let's Encrypt vhosts keep renewing.
 #
-# TLS: Cloudflare Origin Certificate covering *.<domain>, pre-placed at
-# /etc/caddy/origin.pem and /etc/caddy/origin.key. Trusted only by CF —
-# the VPS must be reached via Cloudflare's proxy (orange-cloud DNS).
+# TLS: one Cloudflare Origin Certificate covering *.<domain>, pre-placed at
+# /etc/caddy/origin.pem and /etc/caddy/origin.key. Trusted only by CF — the VPS
+# must be reached via Cloudflare's proxy (orange-cloud DNS).
 #
-# Hostnames come from environment variables read by Caddy at startup.
-# See deploy/.env.example for the names; install path on the VPS is
-# /etc/caddy/Caddyfile.env (loaded via a systemd drop-in — see README).
+# Three tools, one per subdomain. dumpling has a FastAPI backend (proxied at
+# /api → :8000); fusilli and stromboli are client-side only (static, no /api).
+# Hostnames come from env vars read by Caddy at startup — see deploy/.env.example.
 
-# ─── Wizard (dumpling-helpers root app) ──────────────────────────────────
-{$WIZARD_HOST} {
+# ─── dumpling (config wizard + FastAPI backend) ──────────────────────────
+{$DUMPLING_HOST} {
 	tls /etc/caddy/origin.pem /etc/caddy/origin.key
-
 	encode zstd gzip
 
-	# API: cap upload size and proxy to the wizard backend.
-	# 25 MB is generous for the CSV/YAML uploads this app handles.
+	# API: cap upload size and proxy to the dumpling backend.
 	handle /api/* {
 		request_body {
 			max_size 25MB
 		}
 		reverse_proxy 127.0.0.1:8000 {
-			# Pass real client info through to FastAPI logs.
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
 		}
 	}
 
-	# SPA: serve built static files with React Router fallback.
-	# `try_files` first looks for the exact path; if it doesn't exist,
-	# it rewrites to /index.html so React Router can handle the route.
+	# SPA: serve built static files with client-router fallback.
 	handle {
 		root * /srv/dumpling-helpers/apps/dumpling/frontend/dist
 		try_files {path} /index.html
@@ -49,7 +43,43 @@
 	}
 
 	log {
-		output file /var/log/caddy/wizard.log {
+		output file /var/log/caddy/dumpling.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# ─── fusilli (frontend-only) ─────────────────────────────────────────────
+{$FUSILLI_HOST} {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+	encode zstd gzip
+
+	root * /srv/dumpling-helpers/apps/fusilli/frontend/dist
+	try_files {path} /index.html
+	file_server
+
+	log {
+		output file /var/log/caddy/fusilli.log {
+			roll_size 50mb
+			roll_keep 5
+		}
+		format json
+	}
+}
+
+# ─── stromboli (frontend-only) ───────────────────────────────────────────
+{$STROMBOLI_HOST} {
+	tls /etc/caddy/origin.pem /etc/caddy/origin.key
+	encode zstd gzip
+
+	root * /srv/dumpling-helpers/apps/stromboli/frontend/dist
+	try_files {path} /index.html
+	file_server
+
+	log {
+		output file /var/log/caddy/stromboli.log {
 			roll_size 50mb
 			roll_keep 5
 		}

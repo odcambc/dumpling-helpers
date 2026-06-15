@@ -21,7 +21,7 @@ sudo -u $SVC_USER git pull --ff-only
 echo "==> install deps (npm + uv)"
 sudo -u $SVC_USER npm run install:all
 
-echo "==> build frontend"
+echo "==> build frontends (dumpling + fusilli + stromboli)"
 sudo -u $SVC_USER npm run build
 
 echo "==> reload caddy (picks up new static files)"
