@@ -14,6 +14,7 @@ import { StepPipeline } from '@/components/wizard/StepPipeline'
 import { StepRunCommand } from '@/components/wizard/StepRunCommand'
 import { SampleTable } from '@/components/SampleTable/SampleTable'
 import { Preview } from '@/components/Preview/Preview'
+import { StructureView } from '@/components/structure/StructureView'
 import { Button } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 import { buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
@@ -46,6 +47,7 @@ export default function App() {
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
+  const [previewTab, setPreviewTab] = useState<'structure' | 'files'>('structure')
 
   const form = useForm<ConfigFormValues>({
     // configSchema uses z.default() on many fields, so zod's *input* type has
@@ -319,11 +321,29 @@ export default function App() {
 
       {/* ── Live preview panel ───────────────────────────── */}
       <aside className="w-96 shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Live preview</p>
+        <div className="px-3 py-2 border-b border-gray-100 shrink-0 flex gap-1">
+          {(['structure', 'files'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setPreviewTab(t)}
+              className={cn(
+                'flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                previewTab === t
+                  ? 'bg-brand-light text-brand-dark'
+                  : 'text-gray-500 hover:bg-gray-50',
+              )}
+            >
+              {t === 'structure' ? 'Structure' : 'Files'}
+            </button>
+          ))}
         </div>
         <div className="flex-1 overflow-hidden p-4">
-          <Preview config={config} rows={rows} mode={mode} includeTile={includeTile} />
+          {previewTab === 'structure' ? (
+            <StructureView config={config} />
+          ) : (
+            <Preview config={config} rows={rows} mode={mode} includeTile={includeTile} />
+          )}
         </div>
       </aside>
     </div>

@@ -2,29 +2,36 @@
   "name": "dumpling-helpers",
   "private": true,
   "workspaces": [
-    "frontend",
+    "apps/*/frontend",
     "packages/*"
   ],
   "scripts": {
-    "dev":         "concurrently --names \"dh-api,dh-web\" --prefix-colors \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api":     "cd backend && uv run uvicorn app.main:app --reload --port 8000",
-    "dev:web":     "npm run --prefix frontend dev",
+    "dev":              "concurrently --names \"dh-api,dh-web\" --prefix-colors \"cyan,magenta\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api":          "cd apps/dumpling/backend && uv run uvicorn app.main:app --reload --port 8000",
+    "dev:web":          "npm run --prefix apps/dumpling/frontend dev",
+    "dev:stromboli":    "npm run --prefix apps/stromboli/frontend dev",
+    "dev:fusilli":      "npm run --prefix apps/fusilli/frontend dev",
 
-    "build":       "npm run --prefix frontend build",
+    "build":            "npm run build:web && npm run build:stromboli && npm run build:fusilli",
+    "build:web":        "npm run --prefix apps/dumpling/frontend build",
+    "build:stromboli":  "npm run --prefix apps/stromboli/frontend build",
+    "build:fusilli":    "npm run --prefix apps/fusilli/frontend build",
 
-    "check":           "npm run check:web && npm run check:api",
-    "check:web":       "npm run --prefix frontend typecheck",
-    "check:api":       "cd backend && uv run ruff check . && uv run ruff format --check .",
+    "check":            "npm run check:web && npm run check:stromboli && npm run check:fusilli && npm run check:api",
+    "check:web":        "npm run --prefix apps/dumpling/frontend typecheck",
+    "check:stromboli":  "npm run --prefix apps/stromboli/frontend typecheck",
+    "check:fusilli":    "npm run --prefix apps/fusilli/frontend typecheck",
+    "check:api":        "cd apps/dumpling/backend && uv run ruff check . && uv run ruff format --check .",
 
-    "lint":            "npm run lint:web && npm run lint:api",
-    "lint:web":        "npm run --prefix frontend lint",
-    "lint:api":        "cd backend && uv run ruff check . --fix",
+    "lint":             "npm run lint:web && npm run lint:api",
+    "lint:web":         "npm run --prefix apps/dumpling/frontend lint",
+    "lint:api":         "cd apps/dumpling/backend && uv run ruff check . --fix",
 
-    "format":          "npm run format:web && npm run format:api",
-    "format:web":      "npm run --prefix frontend lint:fix",
-    "format:api":      "cd backend && uv run ruff format .",
+    "format":           "npm run format:web && npm run format:api",
+    "format:web":       "npm run --prefix apps/dumpling/frontend lint:fix",
+    "format:api":       "cd apps/dumpling/backend && uv run ruff format .",
 
-    "install:all": "npm install && cd backend && uv sync"
+    "install:all":      "npm install && cd apps/dumpling/backend && uv sync"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=exec
 User=dumpling
 Group=dumpling
-WorkingDirectory=/srv/dumpling-helpers/backend
+WorkingDirectory=/srv/dumpling-helpers/apps/dumpling/backend
 Environment=PYTHONUNBUFFERED=1
 Environment=UV_CACHE_DIR=/home/dumpling/.cache/uv
 Environment=ALLOWED_ORIGINS=https://wizard.example.com
@@ -18,7 +18,7 @@ RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/dumpling/.cache/uv /srv/dumpling-helpers/backend
+ReadWritePaths=/home/dumpling/.cache/uv /srv/dumpling-helpers/apps/dumpling/backend
 PrivateTmp=true
 
 [Install]

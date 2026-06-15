@@ -15,7 +15,7 @@ rationale behind each choice.
 Browser → Cloudflare (TLS + Access gate + WAF + rate limit)
         → VPS (ufw: 80/443 from CF IPs only)
         → Caddy (TLS via CF Origin Cert)
-            └─ wizard.<domain>  → uvicorn :8000 + /frontend/dist
+            └─ wizard.<domain>  → uvicorn :8000 + /apps/dumpling/frontend/dist
                                   (wizard at /, QC tools at /oligo-validator,
                                    /library-composition, /sequencing-plan)
 ```

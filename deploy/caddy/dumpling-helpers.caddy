@@ -43,7 +43,7 @@
 	# `try_files` first looks for the exact path; if it doesn't exist,
 	# it rewrites to /index.html so React Router can handle the route.
 	handle {
-		root * /srv/dumpling-helpers/frontend/dist
+		root * /srv/dumpling-helpers/apps/dumpling/frontend/dist
 		try_files {path} /index.html
 		file_server
 	}
