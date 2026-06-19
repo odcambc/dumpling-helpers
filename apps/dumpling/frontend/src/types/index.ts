@@ -1,4 +1,6 @@
-export type ScoringBackend = 'rosace' | 'lilace'
+export type ScoringBackend = 'rosace' | 'lilace' | 'rosace_aa'
+export type Aligner = 'bbmap' | 'minimap2'
+export type BbtoolsCompression = 'pigz' | 'bgzip' | 'none'
 export type ExperimentMode = 'timecourse' | 'facs'
 
 export interface ConfigFormValues {
@@ -18,7 +20,11 @@ export interface ConfigFormValues {
 
   // Step 3: Pipeline options
   scoring_backend: ScoringBackend
+  aligner: Aligner
   enrich2: boolean
+  keep_enrich_h5: boolean
+  deposit_to_mavedb: boolean
+  run_cosmos: boolean
   remove_zeros: boolean
   run_qc: boolean
   noprocess: boolean
@@ -29,16 +35,28 @@ export interface ConfigFormValues {
   sam: string
   min_q: number
   min_variant_obs: number
+  lilace_seed: number | null
+
+  // Memory (per-rule allocations)
   mem: number
   mem_fastqc: number
   mem_rosace: number
+  mem_rosace_aa: number
   mem_lilace: number
+  mem_bbduk: number
+  mem_bbmerge: number
+  mem_bbmap: number
+  mem_minimap2: number
+  mem_gatk: number
+  mem_process_sample: number
+  mem_cosmos: number
 
   // Environment
   samtools_local: boolean
   rosace_local: boolean
   lilace_local: boolean
-  bbtools_use_bgzip: boolean
+  rosace_aa_local: boolean
+  bbtools_compression: BbtoolsCompression
 
   // Resources
   adapters: string
@@ -52,6 +70,7 @@ export interface SampleRow {
   replicate: number | ''
   timeOrBin: number | ''
   tile: number | ''
+  phenotype: number | ''
   file: string
 }
 

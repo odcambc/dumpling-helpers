@@ -64,24 +64,38 @@ location of the experiments CSV and the designed variants / oligo files.
 | --------------------- | --------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `baseline_condition`  | string                            | `""`                                                                             | Condition name to use as the differential-expression baseline.           |
 | `regenerate_variants` | boolean                           | `false`                                                                          | Regenerate the designed-variants file from `oligo_file` at runtime.      |
-| `scoring_backend`     | enum: `rosace` \| `lilace`        | `rosace`                                                                         | Scoring backend.                                                         |
-| `enrich2`             | boolean                           | `false`                                                                          | Also run Enrich2.                                                        |
+| `scoring_backend`     | enum: `rosace` \| `lilace` \| `rosace_aa` | `rosace`                                                                  | Scoring backend. `rosace_aa` adds position + AA-substitution decomposition. `lilace` / `rosace_aa` require processed variants (incompatible with `noprocess`). |
+| `aligner`             | enum: `bbmap` \| `minimap2`       | `bbmap`                                                                          | Read aligner. `minimap2` (`-ax sr`) is faster on small DMS references.    |
+| `enrich2`             | boolean                           | `true`                                                                           | Also run Enrich2.                                                        |
+| `keep_enrich_h5`      | boolean                           | `false`                                                                          | (Enrich2 only) keep intermediate `.h5` stores instead of deleting them.  |
+| `deposit_to_mavedb`   | boolean                           | `true`                                                                           | Emit a MaveDB-formatted score CSV per condition.                        |
+| `run_cosmos`          | boolean                           | `false`                                                                          | Run cosmos direct/indirect decomposition. Needs exactly two conditions with `phenotype` slots 1 and 2 (see section 2). |
 | `remove_zeros`        | boolean                           | `false`                                                                          | (Enrich2 only) drop unobserved / zero-count variants.                    |
 | `run_qc`              | boolean                           | `true`                                                                           | Run QC stages.                                                           |
 | `noprocess`           | boolean                           | `false`                                                                          | Skip filtering of called variants against the designed list.            |
-| `max_deletion_length` | integer ≥ 1                       | `3`                                                                              | Max designed deletion length (codons).                                   |
+| `max_deletion_length` | integer ≥ 0                       | `0`                                                                              | Max in-frame designed deletion length (codons). `0` disables the cap.    |
 | `kmers`               | integer ≥ 1                       | `15`                                                                             | k-mer length for bbduk.                                                  |
 | `sam`                 | enum: `1.3` \| `1.4`              | `1.3`                                                                            | bbmap CIGAR version.                                                     |
 | `min_q`               | integer in `[0, 60]`              | `30`                                                                             | Min base quality for GATK ASM.                                           |
 | `min_variant_obs`     | integer ≥ 1                       | `3`                                                                              | Min observation count for GATK ASM to keep a variant.                    |
+| `lilace_seed`         | integer \| `null`                 | `null`                                                                           | Seed for lilace's Stan sampling. `null` derives a fresh seed per run (logged); set an integer for bit-identical runs. |
 | `mem`                 | integer ≥ 1                       | `16`                                                                             | bbtools memory (GB).                                                     |
 | `mem_fastqc`          | integer ≥ 256                     | `1024`                                                                           | FastQC memory (MB).                                                      |
 | `mem_rosace`          | integer ≥ 1000                    | `16000`                                                                          | Rosace memory (MB).                                                      |
+| `mem_rosace_aa`       | integer ≥ 1000                    | `16000`                                                                          | rosace-aa memory (MB).                                                   |
 | `mem_lilace`          | integer ≥ 1000                    | `16000`                                                                          | Lilace memory (MB).                                                      |
+| `mem_bbduk`           | integer ≥ 256                     | `2000`                                                                           | Per-bbduk-step memory in the trim/clean/correct rule (MB).               |
+| `mem_bbmerge`         | integer ≥ 256                     | `2000`                                                                           | bbmerge step memory (MB).                                                |
+| `mem_bbmap`           | integer ≥ 1000                    | `12000`                                                                          | bbmap mapping / index memory (MB).                                       |
+| `mem_minimap2`        | integer ≥ 256                     | `1000`                                                                           | minimap2 mapping / index memory (MB).                                    |
+| `mem_gatk`            | integer ≥ 1000                    | `6000`                                                                           | GATK AnalyzeSaturationMutagenesis memory (MB).                          |
+| `mem_process_sample`  | integer ≥ 256                     | `2000`                                                                           | Per-sample variant-processing rule memory (MB).                         |
+| `mem_cosmos`          | integer ≥ 256                     | `4000`                                                                           | run_cosmos rule memory (MB).                                            |
 | `samtools_local`      | boolean                           | `false`                                                                          | Use system `samtools` instead of the wrapper.                            |
 | `rosace_local`        | boolean                           | `false`                                                                          | Use system R for ROSACE instead of conda.                                |
 | `lilace_local`        | boolean                           | `false`                                                                          | Use system Lilace install instead of conda.                              |
-| `bbtools_use_bgzip`   | boolean                           | `true`                                                                           | Use bgzip in BBTools (set false to fall back to pigz).                   |
+| `rosace_aa_local`     | boolean                           | `false`                                                                          | Use system R for rosace-aa instead of conda.                            |
+| `bbtools_compression` | enum: `pigz` \| `bgzip` \| `none` | `pigz`                                                                           | fastq (de)compression backend for BBTools IO. Replaces the deprecated `bbtools_use_bgzip` bool (still accepted on import, mapped to `bgzip`/`none`). |
 | `adapters`            | string \| string[]                | `resources/adapters.fa`                                                          | Adapter file(s) for bbduk. Frontend stores a comma-separated string; the YAML emitter converts to an array of length ≥ 2 and a bare string for length 1. |
 | `contaminants`        | string \| string[]                | `resources/sequencing_artifacts.fa.gz,resources/phix174_ill.ref.fa.gz`           | Contaminant file(s) for bbduk. Same array/string convention as `adapters`. |
 
@@ -99,10 +113,13 @@ orf: 141-2099
 variants_file: config/designed_variants/abcg2.csv
 regenerate_variants: false
 scoring_backend: rosace
-enrich2: false
+aligner: bbmap
+enrich2: true
+deposit_to_mavedb: true
+run_cosmos: false
 run_qc: true
 noprocess: false
-max_deletion_length: 3
+max_deletion_length: 0
 kmers: 15
 sam: '1.3'
 min_q: 30
@@ -110,11 +127,20 @@ min_variant_obs: 3
 mem: 16
 mem_fastqc: 1024
 mem_rosace: 16000
+mem_rosace_aa: 16000
 mem_lilace: 16000
+mem_bbduk: 2000
+mem_bbmerge: 2000
+mem_bbmap: 12000
+mem_minimap2: 1000
+mem_gatk: 6000
+mem_process_sample: 2000
+mem_cosmos: 4000
 samtools_local: false
 rosace_local: false
 lilace_local: false
-bbtools_use_bgzip: true
+rosace_aa_local: false
+bbtools_compression: pigz
 adapters: resources/adapters.fa
 contaminants:
   - resources/sequencing_artifacts.fa.gz
@@ -189,9 +215,10 @@ timecourse (uses `time`).
 
 ### Optional columns
 
-| column | type        | default | meaning                                                                    |
-| ------ | ----------- | ------- | -------------------------------------------------------------------------- |
-| `tile` | integer ≥ 1 | absent  | Tile / sub-region index for tiled libraries. Must be present for all rows or none. |
+| column      | type        | default | meaning                                                                    |
+| ----------- | ----------- | ------- | -------------------------------------------------------------------------- |
+| `tile`      | integer ≥ 1 | absent  | Tile / sub-region index for tiled libraries. Must be present for all rows or none. |
+| `phenotype` | integer ≥ 1 | absent  | cosmos phenotype slot (`1`, `2`, …) for this sample's condition; maps the condition's scores to cosmos `beta_hat_N`/`se_hat_N`. Must agree across all rows of a condition. Only used when `run_cosmos` is `true`. |
 
 ### Examples
 

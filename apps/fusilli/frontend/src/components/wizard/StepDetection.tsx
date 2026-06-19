@@ -12,7 +12,6 @@ export function StepDetection({ form }: Props) {
   const maintainFrame = useWatch({ control, name: 'detection.maintain_frame' })
   const orientation = useWatch({ control, name: 'detection.orientation_check' })
   const prefilter = useWatch({ control, name: 'detection.prefilter_fallback' })
-  const unmerged = useWatch({ control, name: 'detection.unmerged_detection' })
   const paired = useWatch({ control, name: 'sequencing.paired' })
   const quickEnabled = useWatch({ control, name: 'quick.enabled' })
 
@@ -56,12 +55,6 @@ export function StepDetection({ form }: Props) {
           onChange={(v) => setValue('detection.orientation_check', v)}
           label="Orientation check"
           description="Also search the reverse complement to gauge orientation issues."
-        />
-        <Toggle
-          checked={unmerged}
-          onChange={(v) => setValue('detection.unmerged_detection', v)}
-          label="Unmerged detection"
-          description="Also scan unmerged R1/R2 mates; counts kept separate from merged reads."
         />
         <Toggle
           checked={prefilter}

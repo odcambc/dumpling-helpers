@@ -11,6 +11,7 @@ class SampleRow(BaseModel):
     time: float | None = None
     bin: int | None = None
     tile: int | None = None
+    phenotype: int | None = None
 
 
 class ExperimentsPayload(BaseModel):

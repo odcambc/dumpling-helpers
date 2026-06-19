@@ -56,13 +56,18 @@ def build_config_dict(payload: ConfigPayload) -> dict:
         if data.get(key) == "":
             data.pop(key, None)
 
-    # remove_zeros is only meaningful when enrich2 is enabled
+    # remove_zeros / keep_enrich_h5 are only meaningful when enrich2 is enabled
     if not data.get("enrich2"):
         data.pop("remove_zeros", None)
+        data.pop("keep_enrich_h5", None)
 
     # oligo_file only relevant when regenerate_variants is true
     if not data.get("regenerate_variants"):
         data.pop("oligo_file", None)
+
+    # lilace_seed defaults to null upstream (fresh seed per run); only emit when pinned
+    if data.get("lilace_seed") is None:
+        data.pop("lilace_seed", None)
 
     return data
 
@@ -80,6 +85,9 @@ def generate_yaml(payload: ConfigPayload) -> str:
 def generate_csv(payload: ExperimentsPayload) -> str:
     buf = io.StringIO()
 
+    # The cosmos phenotype column is emitted only when at least one row carries it.
+    include_phenotype = any(r.phenotype is not None for r in payload.rows)
+
     fieldnames = ["sample", "condition", "replicate"]
     if payload.mode == "timecourse":
         fieldnames.append("time")
@@ -87,6 +95,8 @@ def generate_csv(payload: ExperimentsPayload) -> str:
         fieldnames.append("bin")
     if payload.include_tile:
         fieldnames.append("tile")
+    if include_phenotype:
+        fieldnames.append("phenotype")
     fieldnames.append("file")
 
     writer = csv.DictWriter(buf, fieldnames=fieldnames, lineterminator="\n")
@@ -107,6 +117,8 @@ def generate_csv(payload: ExperimentsPayload) -> str:
             out["bin"] = row_dict.get("bin", 1)
         if payload.include_tile:
             out["tile"] = row_dict.get("tile", 1)
+        if include_phenotype:
+            out["phenotype"] = row_dict.get("phenotype", "")
         writer.writerow(out)
 
     return buf.getvalue()

@@ -37,6 +37,13 @@ export function importConfigYaml(text: string): ImportedConfig {
   const config: Partial<ConfigFormValues> = {}
 
   for (const [key, value] of Object.entries(parsed)) {
+    // Deprecated bool → bbtools_compression (matches upstream's translation).
+    if (key === 'bbtools_use_bgzip') {
+      ;(config as Record<string, unknown>).bbtools_compression = value ? 'bgzip' : 'none'
+      warnings.push('Deprecated "bbtools_use_bgzip" mapped to "bbtools_compression"')
+      continue
+    }
+
     if (!CONFIG_KEYS.has(key)) {
       warnings.push(`Unknown key "${key}" ignored`)
       continue
@@ -73,6 +80,7 @@ export function importExperimentsCsv(text: string): ImportedExperiments {
   const hasTime = headers.includes('time')
   const hasBin = headers.includes('bin')
   const hasTile = headers.includes('tile')
+  const hasPhenotype = headers.includes('phenotype')
 
   if (!hasTime && !hasBin) {
     warnings.push('Neither "time" nor "bin" column found — defaulting to timecourse mode with 0')
@@ -97,6 +105,10 @@ export function importExperimentsCsv(text: string): ImportedExperiments {
       replicate: parseInt(row.replicate ?? '1', 10) || 1,
       timeOrBin: isNaN(timeOrBin) ? 0 : timeOrBin,
       tile: hasTile ? parseInt(row.tile ?? '1', 10) || 1 : undefined,
+      phenotype:
+        hasPhenotype && (row.phenotype ?? '').trim() !== ''
+          ? parseInt(row.phenotype, 10) || undefined
+          : undefined,
       file: (row.file ?? '').trim(),
     }
   })

@@ -7,6 +7,9 @@ export const sampleRowSchema = z.object({
   replicate: z.number().int().min(1, 'Must be ≥ 1'),
   timeOrBin: z.number({ invalid_type_error: 'Required' }),
   tile: z.number().int().min(1).optional(),
+  // Optional cosmos phenotype slot (1, 2, …) — maps this condition's scores to
+  // cosmos beta_hat_N/se_hat_N. Only used when run_cosmos is enabled.
+  phenotype: z.number().int().min(1).optional(),
   file: z.string().min(1, 'Required'),
 })
 
