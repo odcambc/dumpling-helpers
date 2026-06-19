@@ -13,6 +13,7 @@ interface Props {
   rows: SampleRowValues[]
   mode: ExperimentMode
   includeTile: boolean
+  includePhenotype: boolean
   dataDir: string
   capabilities: Capabilities | null
   onChange: (rows: SampleRowValues[]) => void
@@ -24,6 +25,7 @@ export function SampleTable({
   rows,
   mode,
   includeTile,
+  includePhenotype,
   dataDir,
   capabilities,
   onChange,
@@ -315,6 +317,7 @@ export function SampleTable({
               <Th>Replicate</Th>
               <Th>{timeOrBinLabel}</Th>
               {includeTile && <Th>Tile</Th>}
+              {includePhenotype && <Th>Phenotype</Th>}
               <Th>File prefix</Th>
               <Th className="w-10" />
             </tr>
@@ -323,7 +326,7 @@ export function SampleTable({
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={5 + (includeTile ? 1 : 0)}
+                  colSpan={5 + (includeTile ? 1 : 0) + (includePhenotype ? 1 : 0)}
                   className="py-8 text-center text-gray-400 text-sm"
                 >
                   No samples yet — add a row or paste from a spreadsheet.
@@ -378,6 +381,16 @@ export function SampleTable({
                         value={String(row.tile ?? '')}
                         placeholder="1"
                         onChange={(v) => updateRow(idx, { tile: v ? Number(v) : undefined })}
+                      />
+                    </Td>
+                  )}
+                  {includePhenotype && (
+                    <Td>
+                      <CellInput
+                        type="number"
+                        value={String(row.phenotype ?? '')}
+                        placeholder="—"
+                        onChange={(v) => updateRow(idx, { phenotype: v ? Number(v) : undefined })}
                       />
                     </Td>
                   )}

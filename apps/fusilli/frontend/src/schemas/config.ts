@@ -61,7 +61,6 @@ export const configSchema = z
       kmer_size: z.number().int().min(8).max(30).default(15),
       orientation_check: z.boolean().default(false),
       prefilter_fallback: z.boolean().default(false),
-      unmerged_detection: z.boolean().default(false),
     }),
 
     // ── Sequencing ────────────────────────────────────────────────────────
@@ -156,7 +155,6 @@ export const configDefaults: ConfigFormValues = {
     kmer_size: 15,
     orientation_check: false,
     prefilter_fallback: false,
-    unmerged_detection: false,
   },
   sequencing: { paired: true, min_quality: 30 },
   preprocessing: {

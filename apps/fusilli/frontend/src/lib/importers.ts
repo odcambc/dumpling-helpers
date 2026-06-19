@@ -85,7 +85,6 @@ export function importConfigYaml(text: string): ImportedConfig {
       kmer_size: Number(det.kmer_size ?? d.detection.kmer_size),
       orientation_check: Boolean(det.orientation_check ?? d.detection.orientation_check),
       prefilter_fallback: Boolean(det.prefilter_fallback ?? d.detection.prefilter_fallback),
-      unmerged_detection: Boolean(det.unmerged_detection ?? d.detection.unmerged_detection),
     },
     sequencing: {
       paired: Boolean(seq.paired ?? d.sequencing.paired),

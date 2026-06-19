@@ -10,11 +10,15 @@ interface Props {
   rows: SampleRowValues[]
   mode: ExperimentMode
   includeTile: boolean
+  includePhenotype: boolean
 }
 
-export function Preview({ config, rows, mode, includeTile }: Props) {
+export function Preview({ config, rows, mode, includeTile, includePhenotype }: Props) {
   const yamlText = useMemo(() => buildYaml(config), [config])
-  const csvText = useMemo(() => buildCsv(rows, mode, includeTile), [rows, mode, includeTile])
+  const csvText = useMemo(
+    () => buildCsv(rows, mode, includeTile, includePhenotype),
+    [rows, mode, includeTile, includePhenotype],
+  )
 
   return (
     <div className="flex flex-col gap-4 h-full overflow-hidden">
@@ -42,12 +46,16 @@ function buildYaml(config: ConfigFormValues): string {
 
   const keys: (keyof ConfigFormValues)[] = [
     'experiment', 'experiment_file', 'data_dir', 'ref_dir', 'reference',
-    'variants_file', 'oligo_file', 'orf', 'scoring_backend', 'enrich2',
-    'remove_zeros', 'regenerate_variants', 'noprocess', 'run_qc',
-    'baseline_condition', 'max_deletion_length', 'kmers', 'sam', 'min_q',
-    'min_variant_obs', 'mem', 'mem_fastqc', 'mem_rosace', 'mem_lilace',
-    'samtools_local', 'rosace_local', 'lilace_local', 'bbtools_use_bgzip',
-    'adapters', 'contaminants',
+    'variants_file', 'oligo_file', 'orf',
+    'scoring_backend', 'aligner', 'enrich2', 'keep_enrich_h5',
+    'deposit_to_mavedb', 'run_cosmos', 'remove_zeros', 'regenerate_variants',
+    'noprocess', 'run_qc', 'baseline_condition', 'max_deletion_length',
+    'kmers', 'sam', 'min_q', 'min_variant_obs', 'lilace_seed',
+    'mem', 'mem_fastqc', 'mem_rosace', 'mem_rosace_aa', 'mem_lilace',
+    'mem_bbduk', 'mem_bbmerge', 'mem_bbmap', 'mem_minimap2', 'mem_gatk',
+    'mem_process_sample', 'mem_cosmos',
+    'samtools_local', 'rosace_local', 'lilace_local', 'rosace_aa_local',
+    'bbtools_compression', 'adapters', 'contaminants',
   ]
 
   for (const key of keys) {
@@ -59,7 +67,10 @@ function buildYaml(config: ConfigFormValues): string {
       continue
     }
     if (key === 'remove_zeros' && !config.enrich2) continue
+    if (key === 'keep_enrich_h5' && !config.enrich2) continue
     if (key === 'oligo_file' && !config.regenerate_variants) continue
+    // lilace_seed defaults to null upstream (fresh seed per run); only emit when pinned.
+    if (key === 'lilace_seed' && val === null) continue
     data[key] = val
   }
 
@@ -70,11 +81,17 @@ function buildYaml(config: ConfigFormValues): string {
   }
 }
 
-function buildCsv(rows: SampleRowValues[], mode: ExperimentMode, includeTile: boolean): string {
+function buildCsv(
+  rows: SampleRowValues[],
+  mode: ExperimentMode,
+  includeTile: boolean,
+  includePhenotype: boolean,
+): string {
   if (rows.length === 0) return ''
 
   const fields = ['sample', 'condition', 'replicate', mode === 'timecourse' ? 'time' : 'bin']
   if (includeTile) fields.push('tile')
+  if (includePhenotype) fields.push('phenotype')
   fields.push('file')
 
   const data = rows.map((r) => {
@@ -85,6 +102,7 @@ function buildCsv(rows: SampleRowValues[], mode: ExperimentMode, includeTile: bo
       [mode === 'timecourse' ? 'time' : 'bin']: r.timeOrBin,
     }
     if (includeTile) row.tile = r.tile ?? 1
+    if (includePhenotype) row.phenotype = r.phenotype ?? ''
     row.file = r.file
     return row
   })
