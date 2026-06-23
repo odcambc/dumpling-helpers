@@ -13,7 +13,7 @@ import { StepQcResources } from '@/components/wizard/StepQcResources'
 import { SampleTable } from '@/components/SampleTable/SampleTable'
 import { Preview } from '@/components/Preview/Preview'
 import { StructureView } from '@/components/structure/StructureView'
-import { Button, usePersistedState } from '@dumplingkit/ui'
+import { Button, usePersistedState, SuiteBrand, SuiteSwitcher, HelpMenu } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 import { buildConfigYaml, buildSamplesCsv } from '@/lib/emit'
 import JSZip from 'jszip'
@@ -184,14 +184,12 @@ export default function App() {
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* ── Sidebar ─────────────────────────────────────── */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-gray-200 bg-white">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-brand flex items-center justify-center">
-              <span className="text-white text-xs font-bold">F</span>
-            </div>
-            <span className="font-semibold text-gray-900 text-sm">fusilli</span>
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <SuiteBrand subtitle="fusilli · config generator" />
+            <HelpMenu />
           </div>
-          <p className="text-xs text-gray-400 mt-1">Fusion pipeline config generator</p>
+          <SuiteSwitcher current="fusilli" />
         </div>
 
         <nav className="flex-1 p-4 space-y-1">

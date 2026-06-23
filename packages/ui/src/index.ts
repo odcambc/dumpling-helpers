@@ -14,3 +14,15 @@ export { Toggle } from './components/toggle'
 export { Collapsible } from './components/collapsible'
 export { RegionTrack } from './components/region-track'
 export type { TrackSegment, SegmentTone } from './components/region-track'
+
+export { SuiteBrand } from './components/suite-brand'
+export { SuiteSwitcher } from './components/suite-switcher'
+export { HelpMenu } from './components/help-menu'
+export {
+  SUITE_NAME,
+  SUITE_TAGLINE,
+  SUITE_TOOLS,
+  SUITE_GROUPS,
+  HELP_LINKS,
+} from './suite'
+export type { SuiteTool, HelpLink } from './suite'

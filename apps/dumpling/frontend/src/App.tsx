@@ -15,7 +15,7 @@ import { StepRunCommand } from '@/components/wizard/StepRunCommand'
 import { SampleTable } from '@/components/SampleTable/SampleTable'
 import { Preview } from '@/components/Preview/Preview'
 import { StructureView } from '@/components/structure/StructureView'
-import { Button, usePersistedState } from '@dumplingkit/ui'
+import { Button, usePersistedState, SuiteBrand, SuiteSwitcher, HelpMenu } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 import { buildSlurmProfile, buildSgeProfile, getProfilePath } from '@/lib/runCommand'
 import JSZip from 'jszip'
@@ -28,13 +28,6 @@ const STEPS: { label: string; title: string }[] = [
   { label: 'Pipeline', title: 'Pipeline options' },
   { label: 'Samples', title: 'Sample table' },
   { label: 'Run', title: 'Run command' },
-]
-
-// QC tools are sibling routes within this app, linked from the wizard sidebar.
-const QC_TOOLS: { label: string; path: string }[] = [
-  { label: 'Oligo validator', path: '/oligo-validator' },
-  { label: 'Library composition', path: '/library-composition' },
-  { label: 'Sequencing planner', path: '/sequencing-plan' },
 ]
 
 // Form fields owned by each wizard step, used to gate Next on per-step
@@ -267,14 +260,19 @@ export default function App() {
       {/* ── Sidebar ─────────────────────────────────────── */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-gray-200 bg-white">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-brand flex items-center justify-center">
-              <span className="text-white text-xs font-bold">D</span>
-            </div>
-            <span className="font-semibold text-gray-900 text-sm">dumpling-helpers</span>
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <SuiteBrand subtitle="dumpling · config generator" />
+            <HelpMenu />
           </div>
-          <p className="text-xs text-gray-400 mt-1">Pipeline config generator</p>
+          <SuiteSwitcher
+            current="dumpling"
+            renderLink={(to, className, children) => (
+              <Link to={to} className={className}>
+                {children}
+              </Link>
+            )}
+          />
         </div>
 
         {/* Steps */}
@@ -367,24 +365,6 @@ export default function App() {
               Downloaded!
             </div>
           )}
-
-          <div className="space-y-1">
-            <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              QC tools
-            </p>
-            {QC_TOOLS.map((tool) => (
-              <Link
-                key={tool.path}
-                to={tool.path}
-                className={cn(
-                  'w-full inline-flex items-center rounded-md text-sm font-medium',
-                  'h-8 px-3 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors',
-                )}
-              >
-                {tool.label}
-              </Link>
-            ))}
-          </div>
 
           <Button
             type="button"
