@@ -4,6 +4,7 @@
 export { cn } from './utils'
 export { colors, typography } from './tokens'
 export type { Colors, Typography } from './tokens'
+export { usePersistedState } from './use-persisted-state'
 
 export { Button } from './components/button'
 export { Input } from './components/input'

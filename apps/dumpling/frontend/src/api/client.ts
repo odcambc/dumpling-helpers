@@ -26,11 +26,34 @@ export interface BrowseResult {
   entries: BrowseEntry[]
 }
 
+const DEFAULT_TIMEOUT_MS = 15000
+
+// fetch with an AbortController-backed timeout so a hung/unreachable backend
+// surfaces a clear error instead of spinning indefinitely.
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Request timed out — is the backend running?', { cause: err })
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(path, options)
+  const res = await fetchWithTimeout(path, options)
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(body.detail ?? `HTTP ${res.status}`)
@@ -69,7 +92,7 @@ export const api = {
     mode: ExperimentMode,
     includeTile: boolean,
   ): Promise<Blob> {
-    const res = await fetch('/api/generate', {
+    const res = await fetchWithTimeout('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
