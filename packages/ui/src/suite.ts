@@ -54,8 +54,6 @@ export interface HelpLink {
   href: string
 }
 
-// NOTE: only the suite repo URL is confirmed. The per-tool repos, docs, and
-// citation are placeholders — replace the TODO(user) entries with real values.
 export const HELP_LINKS: {
   repos: HelpLink[]
   docs: HelpLink[]
@@ -63,12 +61,15 @@ export const HELP_LINKS: {
 } = {
   repos: [
     { label: 'SOUS-CHEF (this suite)', href: 'https://github.com/odcambc/dumpling-helpers' },
-    { label: 'dumpling pipeline', href: 'https://github.com/odcambc/dumpling' }, // TODO(user): confirm URL (best-guess)
-    { label: 'fusilli pipeline', href: 'https://github.com/odcambc/fusilli' }, // TODO(user): confirm URL (best-guess)
-    { label: 'stromboli pipeline', href: 'https://github.com/odcambc/stromboli' }, // TODO(user): confirm URL (best-guess)
+    { label: 'dumpling pipeline', href: 'https://github.com/odcambc/dumpling' },
+    { label: 'fusilli pipeline', href: 'https://github.com/odcambc/fusilli' },
+    { label: 'stromboli pipeline', href: 'https://github.com/odcambc/stromboli' },
   ],
-  // TODO(user): add documentation link(s), e.g. { label: 'Docs', href: '…' }.
-  docs: [],
-  // TODO(user): add a citation string / DOI to show in the help panel.
-  citation: '',
+  docs: [
+    { label: 'SOUS-CHEF (this suite)', href: 'https://github.com/odcambc/dumpling-helpers' },
+    { label: 'dumpling pipeline', href: 'https://github.com/odcambc/dumpling' },
+    { label: 'fusilli pipeline', href: 'https://github.com/odcambc/fusilli' },
+    { label: 'stromboli pipeline', href: 'https://github.com/odcambc/stromboli' },
+  ],
+  citation: 'https://doi.org/10.1186/s13059-024-03279-7',
 }
