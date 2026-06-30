@@ -37,6 +37,17 @@ deploy/
   .env.example                  — the three hostnames Caddy reads from /etc/caddy/Caddyfile.env
 ```
 
+## Cross-tool links (build-time)
+
+The SOUS-CHEF "Switch tool" menu links between the three apps. Since each app is
+served from its own subdomain, the links can't be relative — every frontend is
+built knowing the others' URLs via `VITE_DUMPLING_URL` / `VITE_FUSILLI_URL` /
+`VITE_STROMBOLI_URL` (see `.env.example`). Vite **inlines** these at build time,
+so they must be exported in the environment when `deploy.sh` runs `npm run build`
+— Caddy does not read them at runtime. If unset, the apps fall back to
+`localhost:5173/5174/5175`, which is only correct for local dev. Set them to the
+real `https://…` hostnames (matching `*_HOST`) before building for production.
+
 ## Coexisting with an existing Caddy on the VPS
 
 This VPS already runs Caddy for other apps. Our config is a **vhost snippet**, not a full Caddyfile — it adds three site blocks alongside whatever's already there. One Caddy process, multiple vhosts.

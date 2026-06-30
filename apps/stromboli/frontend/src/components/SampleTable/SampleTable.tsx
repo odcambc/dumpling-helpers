@@ -213,8 +213,8 @@ export function SampleTable({ rows, onChange }: Props) {
       {errors.size > 0 && (
         <div className="text-xs text-red-600 space-y-0.5">
           {[...errors.entries()].map(([row, msgs]) =>
-            msgs.map((m) => (
-              <p key={`${row}-${m}`}>
+            msgs.map((m, j) => (
+              <p key={`${row}-${j}`}>
                 Row {Number(row) + 1}: {m}
               </p>
             )),

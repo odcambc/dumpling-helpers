@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
@@ -12,7 +12,7 @@ import { StepCalling } from '@/components/wizard/StepCalling'
 import { SampleTable } from '@/components/SampleTable/SampleTable'
 import { Preview } from '@/components/Preview/Preview'
 import { StructureView } from '@/components/structure/StructureView'
-import { Button } from '@dumplingkit/ui'
+import { Button, usePersistedState, SuiteBrand, SuiteSwitcher, HelpMenu } from '@dumplingkit/ui'
 import { cn } from '@/lib/utils'
 import { buildConfigYaml, buildSamplesCsv } from '@/lib/emit'
 import JSZip from 'jszip'
@@ -24,13 +24,30 @@ const STEPS: { label: string; title: string }[] = [
   { label: 'Samples', title: 'Sample table' },
 ]
 
+// Form fields owned by each step, for gating Next. Step 4 (sample table) has no
+// form fields — it's gated via validateSampleTable.
+const STEP1_FIELDS: (keyof ConfigFormValues)[] = ['experiment', 'data_dir', 'ref_dir', 'experiment_file', 'reference', 'gene_name']
+const STEP2_FIELDS: (keyof ConfigFormValues)[] = ['orf', 'flanking_sequence', 'max_barcode_length', 'barcode_distance']
+// Step 3 is everything else the form owns (variant calling + clash detection).
+const STEP3_FIELDS: (keyof ConfigFormValues)[] = (Object.keys(configDefaults) as (keyof ConfigFormValues)[]).filter(
+  (k) => !STEP1_FIELDS.includes(k) && !STEP2_FIELDS.includes(k),
+)
+const STEP_FIELDS: (keyof ConfigFormValues)[][] = [STEP1_FIELDS, STEP2_FIELDS, STEP3_FIELDS]
+
+const STORAGE_PREFIX = 'souschef:stromboli:v1'
+
 export default function App() {
   const [step, setStep] = useState<WizardStep>(1)
-  const [rows, setRows] = useState<SampleRowValues[]>([makeEmptyRow()])
+  const [rows, setRows] = usePersistedState<SampleRowValues[]>(`${STORAGE_PREFIX}:rows`, [makeEmptyRow()])
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const [downloadSuccess, setDownloadSuccess] = useState(false)
   const [previewTab, setPreviewTab] = useState<'structure' | 'files'>('structure')
+  const [draftRestored, setDraftRestored] = useState(false)
+  // Steps validated at least once (via Next or navigating away). A rail badge
+  // stays a neutral number until visited, then resolves to ✓ or ! by its errors.
+  const [visited, setVisited] = useState<Set<number>>(() => new Set())
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const form = useForm<ConfigFormValues>({
     // Many fields use z.default(), so zod's input type has them optional while the
@@ -42,6 +59,89 @@ export default function App() {
   })
 
   const config = form.watch()
+  const { errors } = form.formState
+
+  // Persist the config form (debounced) and restore any draft on mount, merging
+  // the raw draft over defaults so an in-progress (not-yet-valid) config restores.
+  useEffect(() => {
+    const CONFIG_KEY = `${STORAGE_PREFIX}:config`
+    try {
+      const raw = localStorage.getItem(CONFIG_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<ConfigFormValues>
+        form.reset({ ...configDefaults, ...parsed })
+        setDraftRestored(true)
+      }
+    } catch {
+      // Corrupt draft — ignore.
+    }
+    // RHF's documented subscribe pattern: watch() returns a subscription we
+    // tear down on unmount; the rule's memoization concern doesn't apply here.
+    // eslint-disable-next-line react-hooks/incompatible-library
+    const sub = form.watch((values) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(() => {
+        try {
+          localStorage.setItem(CONFIG_KEY, JSON.stringify(values))
+        } catch {
+          // best-effort
+        }
+      }, 400)
+    })
+    return () => {
+      sub.unsubscribe()
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Per-step gating: validate only the current step's fields before advancing.
+  async function validateStep(target: WizardStep): Promise<boolean> {
+    if (target === 4) return validateSampleTable(rows).size === 0
+    const fields = STEP_FIELDS[target - 1]
+    return fields ? form.trigger(fields) : true
+  }
+
+  function markVisited(target: WizardStep) {
+    setVisited((v) => (v.has(target) ? v : new Set(v).add(target)))
+  }
+
+  async function goNext() {
+    const ok = await validateStep(step)
+    markVisited(step)
+    if (ok) setStep((s) => Math.min(4, s + 1) as WizardStep)
+  }
+
+  // Rail navigation is free, but leaving a step validates it so its badge
+  // reflects reality (a skipped, never-visited step stays neutral).
+  function goToStep(target: WizardStep) {
+    void validateStep(step)
+    markVisited(step)
+    setStep(target)
+  }
+
+  function stepHasError(target: WizardStep): boolean {
+    if (target === 4) return validateSampleTable(rows).size > 0
+    const fields = STEP_FIELDS[target - 1]
+    if (!fields) return false
+    const errs = errors as Record<string, unknown>
+    return fields.some((f) => errs[f] != null)
+  }
+
+  // Discard the saved draft and reset every field to defaults.
+  function startOver() {
+    if (!window.confirm('Discard the current draft and reset all fields?')) return
+    try {
+      localStorage.removeItem(`${STORAGE_PREFIX}:config`)
+    } catch {
+      // ignore
+    }
+    form.reset(configDefaults)
+    setRows([makeEmptyRow()])
+    setStep(1)
+    setVisited(new Set())
+    setDraftRestored(false)
+  }
 
   async function handleDownload() {
     const valid = await form.trigger()
@@ -80,26 +180,26 @@ export default function App() {
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* ── Sidebar ─────────────────────────────────────── */}
       <aside className="w-72 shrink-0 flex flex-col border-r border-gray-200 bg-white">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-brand flex items-center justify-center">
-              <span className="text-white text-xs font-bold">S</span>
-            </div>
-            <span className="font-semibold text-gray-900 text-sm">stromboli</span>
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <SuiteBrand subtitle="stromboli · config generator" />
+            <HelpMenu />
           </div>
-          <p className="text-xs text-gray-400 mt-1">Barcode-mapping config generator</p>
+          <SuiteSwitcher current="stromboli" />
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
           {STEPS.map(({ label }, i) => {
             const n = (i + 1) as WizardStep
             const isActive = step === n
-            const isDone = step > n
+            const wasVisited = visited.has(n)
+            const hasError = wasVisited && stepHasError(n)
+            const isDone = wasVisited && !hasError
             return (
               <button
                 key={label}
                 type="button"
-                onClick={() => setStep(n)}
+                onClick={() => goToStep(n)}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left',
                   isActive
@@ -112,12 +212,14 @@ export default function App() {
                     'inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0',
                     isActive
                       ? 'bg-brand text-white'
-                      : isDone
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-500',
+                      : hasError
+                        ? 'bg-red-100 text-red-700'
+                        : isDone
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-500',
                   )}
                 >
-                  {isDone ? '✓' : n}
+                  {isActive ? n : hasError ? '!' : isDone ? '✓' : n}
                 </span>
                 {label}
               </button>
@@ -132,6 +234,13 @@ export default function App() {
               if (samples) setRows(samples.rows)
             }}
           />
+          <button
+            type="button"
+            onClick={startOver}
+            className="mt-2 text-[11px] text-gray-400 underline hover:text-gray-600 transition-colors"
+          >
+            {draftRestored ? 'Draft restored — start over' : 'Start over'}
+          </button>
         </div>
 
         <div className="p-4 border-t border-gray-100 space-y-3">
@@ -178,7 +287,7 @@ export default function App() {
           </Button>
           <span className="text-xs text-gray-400">Step {step} of {STEPS.length}</span>
           {step < 4 ? (
-            <Button type="button" onClick={() => setStep((s) => Math.min(4, s + 1) as WizardStep)}>
+            <Button type="button" onClick={() => void goNext()}>
               Next →
             </Button>
           ) : (

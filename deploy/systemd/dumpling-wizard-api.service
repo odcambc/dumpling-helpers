@@ -10,7 +10,7 @@ Group=dumpling
 WorkingDirectory=/srv/dumpling-helpers/apps/dumpling/backend
 Environment=PYTHONUNBUFFERED=1
 Environment=UV_CACHE_DIR=/home/dumpling/.cache/uv
-Environment=ALLOWED_ORIGINS=https://wizard.example.com
+Environment=ALLOWED_ORIGINS=https://dumpling.odcambc.com
 ExecStart=/usr/local/bin/uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=3
